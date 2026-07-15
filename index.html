@@ -26,7 +26,7 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sa
 .sitenav a.active{color:#fff;border-bottom-color:#639922}
 .navbadge{display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--red-bg);color:var(--red);margin-left:6px}
 
-.wrap{max-width:1400px;margin:0 auto;padding:16px 24px 80px;position:relative}
+.wrap{padding:16px 24px 80px;position:relative}
 .gear-floating{display:none;position:absolute;top:16px;right:24px;z-index:5}
 .stageview.active ~ .gear-floating, .stageview.active + .gear-floating{display:block}
 header{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
@@ -83,6 +83,10 @@ select.fsort{font-size:11px;padding:3px 7px;border:1px solid var(--border);borde
 .auto-badge{display:inline-flex;align-items:center;gap:3px;font-size:9px;padding:1px 5px;margin-left:4px;border-radius:4px;background:#EAF3E4;color:#3B6D11;white-space:nowrap}
 .extlink{color:var(--text2);text-decoration:none;font-size:13px}
 .extlink:hover{color:var(--green)}
+.act{border:none;background:transparent;cursor:pointer;padding:2px 7px;border-radius:var(--radius);font-size:11px;transition:all .12s}
+.act.acc{color:var(--green)}.act.acc:hover{background:var(--green-bg)}
+.act.rej{color:var(--red)}.act.rej:hover{background:var(--red-bg)}
+.act.score{color:var(--amber)}.act.score:hover{background:#fef9ec}
 
 .empty{text-align:center;padding:50px 20px;color:var(--text2)}
 .empty .big{font-size:13.5px;color:var(--text);margin-bottom:4px;font-weight:600}
@@ -346,9 +350,8 @@ async function loadCounts(){
   const sitesData = await fetchAllPaginated("sites", "id,job_stage,status");
   if (sitesData === null) return;
 
-  stage1Jobs = listingsData
-    .filter(l => { const ms = macroScoreOf(l); return ms !== null && ms !== undefined && Number(ms) >= macroThreshold; })
-    .sort((a,b) => (macroScoreOf(b)||0) - (macroScoreOf(a)||0));
+  // Nav badge mirrors the real Inbox tab exactly: raw count of all inbox listings, unfiltered.
+  stage1Jobs = listingsData.slice();
 
   const activeSites = (sitesData||[]).filter(s => s.status !== "rejected");
   const counts = {1: stage1Jobs.length, 2:0, 3:0, 4:0, 5:0, 6:0};
@@ -429,7 +432,7 @@ function getFilteredStage1(){
     if (s1Source !== "all" && (l.source||"").toLowerCase() !== s1Source) return false;
     var ms = macroScoreOf(l);
     if (s1Filters.scored && (ms === null || ms === undefined)) return false;
-    if (s1Filters.hi && !(ms !== null && Number(ms) >= 3.5)) return false;
+    if (s1Filters.hi && !(ms !== null && Number(ms) >= macroThreshold)) return false;
     if (s1Filters.dup && !l.duplicate_of) return false;
     if (search){
       var hay = ((l.address||"")+" "+(l.agency_name||"")).toLowerCase();
@@ -476,9 +479,40 @@ function renderStage1List(){
       + '<td>'+srcTag(l.source)+ingestBadge(l)+'</td>'
       + '<td>'+fmtDate(l.submitted_at)+'</td>'
       + '<td>'+(l.agency_name||"\u2014")+'</td>'
-      + '<td><a class="extlink" href="'+(l.listing_url||"#")+'" target="_blank" onclick="event.stopPropagation()">\u2197</a></td>'
+      + '<td onclick="event.stopPropagation()"><a class="extlink" href="'+(l.listing_url||"#")+'" target="_blank" title="View listing">\u2197</a>'
+      + '<button class="act score" onclick="scoreOneRowStub(\''+l.id+'\')" title="Run macro score">\u26A1</button>'
+      + '<button class="act acc" onclick="listingAction(\''+l.id+'\',\'enquiry\')" title="\u2192 Enquiry">\u2192</button>'
+      + '<button class="act rej" onclick="listingAction(\''+l.id+'\',\'rejected\')" title="Reject">\u2717</button>'
+      + '</td>'
       + '</tr>';
   }).join("");
+}
+
+function scoreOneRowStub(id){
+  toast("Scoring isn't wired up in this tool yet \u2014 listings arrive pre-scored from import.");
+}
+
+function toast(msg){
+  let el = document.getElementById("toast-el");
+  if (!el){
+    el = document.createElement("div");
+    el.id = "toast-el";
+    el.style.cssText = "position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1a1a18;color:#fff;font-size:12px;padding:7px 16px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9999;white-space:nowrap";
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.opacity = "1";
+  setTimeout(()=>{ el.style.opacity = "0"; }, 2000);
+}
+
+async function listingAction(id, ns){
+  const l = stage1Jobs.find(x=>x.id===id);
+  if (!l){ toast("Error: listing not found"); return; }
+  const {error} = await db.from("listings").update({status: ns}).eq("id", id);
+  if (error){ toast("Error: "+error.message); return; }
+  toast(ns==="rejected" ? "Rejected" : ns==="enquiry" ? "\u2192 Added to Enquiry list" : "Moved");
+  await loadCounts();
+  renderStage1List();
 }
 
 function openDrawer(id){
