@@ -153,8 +153,10 @@ input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--bl
 function switchStageView(view){
   document.querySelectorAll(".sitenav a").forEach(function(a){ a.classList.toggle("active", a.dataset.view === view); });
   document.getElementById("overlay-home").style.display = view === "home" ? "block" : "none";
-  document.getElementById("overlay-placeholder").style.display = (view !== "home" && view !== "1") ? "block" : "none";
+  document.getElementById("overlay-placeholder").style.display = (view !== "home" && view !== "1" && view !== "2") ? "block" : "none";
   if (view === "home") renderStageGridSummary();
+  if (view === "1") switchTab("inbox");
+  if (view === "2") switchTab("enquiry");
 }
 function renderStageGridSummary(){
   var meta = [
@@ -166,13 +168,14 @@ function renderStageGridSummary(){
     {n:6, title:"Schedule viewing", desc:"Book it in, attach details to the calendar."}
   ];
   var stage1Count = listings.filter(function(l){ return l.status === "inbox"; }).length;
+  var stage2Count = listings.filter(function(l){ return l.status === "enquiry"; }).length;
   var grid = document.getElementById("stagegrid");
   var rows = "";
   for (var i=0; i<meta.length; i++){
     var st = meta[i];
-    var c = st.n === 1 ? stage1Count : 0;
-    var built = st.n === 1;
-    rows += '<div style="background:#fff;display:flex;align-items:center;gap:18px;padding:16px 20px;' + (built?"cursor:pointer":"opacity:.45") + '"' + (built?' onclick="switchStageView(\'1\')"':'') + '>'
+    var c = st.n === 1 ? stage1Count : st.n === 2 ? stage2Count : 0;
+    var built = st.n === 1 || st.n === 2;
+    rows += '<div style="background:#fff;display:flex;align-items:center;gap:18px;padding:16px 20px;' + (built?"cursor:pointer":"opacity:.45") + '"' + (built?' onclick="switchStageView(\''+st.n+'\')"':'') + '>'
       + '<div style="font-weight:700;font-size:20px;color:#9b9a95;width:26px">' + String(st.n).padStart(2,"0") + '</div>'
       + '<div style="flex:1"><div style="font-weight:600;font-size:14px">' + st.title + '</div><div style="color:#6b6a65;font-size:12px;margin-top:2px">' + st.desc + '</div></div>'
       + '<div style="font-weight:700;font-size:15px;background:' + (c===0?"#e8e7e2":"#639922") + ';color:' + (c===0?"#9b9a95":"#fff") + ';border-radius:20px;min-width:26px;height:26px;display:flex;align-items:center;justify-content:center;padding:0 8px">' + c + '</div>'
@@ -183,7 +186,7 @@ function renderStageGridSummary(){
 </script>
 
 <div class="topbar">
-  <div class="nav-tabs">
+  <div class="nav-tabs" style="display:none">
     <button class="tab active" onclick="switchTab('inbox')">Inbox <span class="badge" id="c-inbox">29</span></button>
     <button class="tab" onclick="switchTab('enquiry')">Enquiry <span class="badge" id="c-enquiry">0</span></button>
     <button class="tab" onclick="switchTab('rejected')">Rejected <span class="badge" id="c-rejected">0</span></button>
@@ -330,6 +333,7 @@ async function loadListings(){
   if(loadingEl)loadingEl.style.display='none';
   render();
   updateCounts();
+  if(document.getElementById('overlay-home')&&document.getElementById('overlay-home').style.display!=='none')renderStageGridSummary();
 }
 var curTab='inbox',srcFilter='all',extraFilters={scored:false,hi:false,dup:false};
 var sortCol='macro',sortDir='desc';
@@ -546,7 +550,7 @@ async function sendToProspecting(l){
     listing_url:l.url||null,
     source:l.source||'Rightmove',
     stage:0,
-    job_stage:2,
+    job_stage:3,
     status:'active',
     ceiling_ok:false,
     sqft:l.size||null,
@@ -836,8 +840,7 @@ function showDetail(id){
   document.getElementById('dp-close').onclick=closeDetail;
   if(document.getElementById('dp-enq'))document.getElementById('dp-enq').onclick=async function(){
     if(!confirm('Can this property facilitate 1 or more golf bays?'))return;
-    try{await sendToProspecting(l);l.status='accepted';closeDetail();render();updateCounts();toast('\u2713 Passed \u2192 Stage 2 (floorplan collection)');}
-    catch(e){toast('Error: '+e.message);}
+    action(l.id,'enquiry');closeDetail();
   };
   if(document.getElementById('dp-acc'))document.getElementById('dp-acc').onclick=function(){action(l.id,'accepted');closeDetail();};
   document.getElementById('dp-rej').onclick=function(){action(l.id,'rejected');closeDetail();};
@@ -1044,6 +1047,7 @@ function toast(msg){
 }
 
 loadListings();
+switchStageView('home');
 </script>
 </body>
 </html>
