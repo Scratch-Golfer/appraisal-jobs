@@ -283,16 +283,33 @@ async function loadSettings(){
   }catch(e){ console.warn("settings load failed, using default", e); }
 }
 
+async function fetchAllPaginated(table, selectStr, filterFn){
+  let all = [];
+  let from = 0;
+  const pageSize = 1000;
+  while(true){
+    let q = db.from(table).select(selectStr).range(from, from+pageSize-1);
+    if (filterFn) q = filterFn(q);
+    const {data, error} = await q;
+    if (error){ console.error(table, error); return null; }
+    all = all.concat(data);
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
+}
+
 async function loadCounts(){
-  const {data: listingsData, error: e1} = await db.from("listings")
-    .select("id,address,sqft,rent,agency_name,listing_url,source,ingested_via,submitted_at,macro_score_v2,macro_score_data,micro_score_v2,status,duplicate_of,notes");
-  if (e1){ console.error(e1); return; }
+  // Exact same pull as Site Triage's Inbox tab: all listings, status = inbox, no macro filtering.
+  const listingsData = await fetchAllPaginated("listings", "*", q => q.eq("status","inbox"));
+  if (listingsData === null) return;
 
-  const {data: sitesData, error: e2} = await db.from("sites").select("id,job_stage,status");
-  if (e2){ console.error(e2); return; }
+  const sitesData = await fetchAllPaginated("sites", "id,job_stage,status");
+  if (sitesData === null) return;
 
-  const activeListings = (listingsData||[]).filter(l => l.status !== "rejected");
-  stage1Jobs = activeListings.filter(l => { const ms = macroScoreOf(l); return ms !== null && ms !== undefined && Number(ms) >= macroThreshold; });
+  stage1Jobs = listingsData
+    .filter(l => { const ms = macroScoreOf(l); return ms !== null && ms !== undefined && Number(ms) >= macroThreshold; })
+    .sort((a,b) => (macroScoreOf(b)||0) - (macroScoreOf(a)||0));
 
   const activeSites = (sitesData||[]).filter(s => s.status !== "rejected");
   const counts = {1: stage1Jobs.length, 2:0, 3:0, 4:0, 5:0, 6:0};
