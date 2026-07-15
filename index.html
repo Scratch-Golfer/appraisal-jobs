@@ -63,6 +63,13 @@ table.joblist tbody tr{border-bottom:1px solid var(--border);transition:backgrou
 table.joblist tbody tr:hover{background:#fafaf8}
 .addr1{font-weight:600;font-size:12px;color:var(--text)}
 .addr2{font-size:10px;color:var(--text3);font-family:monospace;margin-top:1px}
+
+.filterbar{display:flex;align-items:center;gap:6px;padding:7px 0 14px;flex-wrap:wrap;row-gap:4px}
+.fl{font-size:10px;color:var(--text3);letter-spacing:.05em;white-space:nowrap}
+.fb{font-size:11px;padding:3px 9px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text2);cursor:pointer;transition:all .12s;white-space:nowrap}
+.fb.on{background:var(--text);color:#fff;border-color:var(--text)}
+.sep{width:1px;height:16px;background:var(--border);flex-shrink:0}
+select.fsort{font-size:11px;padding:3px 7px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);cursor:pointer;font-family:inherit}
 .duprow{font-size:10.5px;color:var(--amber);margin-top:3px}
 .duprow a{color:var(--amber);text-decoration:underline}
 .poa{color:var(--text3);font-size:11px}
@@ -149,6 +156,38 @@ label.fieldlbl{font-size:12px;color:var(--text2);display:block;margin-bottom:6px
   <button class="gear gear-floating" id="gear-btn-stage" title="Settings">⚙</button>
 
   <div class="stageview" id="view-1">
+    <div class="filterbar">
+      <input type="text" id="s1-search" placeholder="Search address, agent&hellip;" oninput="renderStage1List()" style="border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;font-family:inherit;width:220px;margin-right:4px">
+      <div class="sep"></div>
+      <span class="fl">SOURCE</span>
+      <button class="fb on" id="s1-f-all" onclick="setS1Source(\'all\')">All</button>
+      <button class="fb" id="s1-f-rightmove" onclick="setS1Source(\'rightmove\')">Rightmove</button>
+      <button class="fb" id="s1-f-loopnet" onclick="setS1Source(\'loopnet\')">LoopNet</button>
+      <button class="fb" id="s1-f-agent" onclick="setS1Source(\'agent\')">Agent</button>
+      <div class="sep"></div>
+      <span class="fl">SCORE</span>
+      <button class="fb on" id="s1-f-scored" onclick="toggleS1Filter(\'scored\')">Scored only</button>
+      <button class="fb" id="s1-f-hi" onclick="toggleS1Filter(\'hi\')">3.5+ &#9733;</button>
+      <button class="fb" id="s1-f-dup" onclick="toggleS1Filter(\'dup\')">&#9888; Duplicates</button>
+      <div class="sep"></div>
+      <span class="fl">SORT</span>
+      <select class="fsort" id="s1-sort" onchange="renderStage1List()">
+        <option value="date-desc">Newest first</option>
+        <option value="macro-desc" selected>Macro &darr;</option>
+        <option value="price-asc">Price &uarr;</option>
+        <option value="ppsf-asc">&pound;/sqft &uarr;</option>
+        <option value="size-desc">Size &darr;</option>
+      </select>
+      <div class="sep"></div>
+      <span class="fl">SQFT</span>
+      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)">
+        <input type="range" id="s1-sqft-min" min="0" max="5000" step="100" value="0" oninput="updateS1SqftLabel();renderStage1List()" style="width:65px;cursor:pointer;accent-color:#3B6D11">
+        <span id="s1-sqft-min-lbl" style="min-width:24px;font-size:10px">0</span>
+        <span style="color:var(--text3)">&ndash;</span>
+        <input type="range" id="s1-sqft-max" min="0" max="5000" step="100" value="5000" oninput="updateS1SqftLabel();renderStage1List()" style="width:65px;cursor:pointer;accent-color:#3B6D11">
+        <span id="s1-sqft-max-lbl" style="min-width:30px;font-size:10px">any</span>
+      </div>
+    </div>
     <table class="joblist" id="table-1">
       <thead><tr>
         <th>Address</th><th>Size</th><th>Price/mo</th><th>£/sqft</th>
@@ -357,29 +396,88 @@ document.querySelectorAll("#sitenav a").forEach(a=>{
   a.addEventListener("click", ()=> switchView(a.dataset.view));
 });
 
+let s1Source = "all";
+let s1Filters = {scored:true, hi:false, dup:false};
+
+function setS1Source(s){
+  s1Source = s;
+  ["all","rightmove","loopnet","agent"].forEach(function(k){
+    document.getElementById("s1-f-"+k).classList.toggle("on", k===s);
+  });
+  renderStage1List();
+}
+function toggleS1Filter(k){
+  s1Filters[k] = !s1Filters[k];
+  document.getElementById("s1-f-"+k).classList.toggle("on", s1Filters[k]);
+  renderStage1List();
+}
+function updateS1SqftLabel(){
+  var min = document.getElementById("s1-sqft-min").value;
+  var max = document.getElementById("s1-sqft-max").value;
+  document.getElementById("s1-sqft-min-lbl").textContent = min;
+  document.getElementById("s1-sqft-max-lbl").textContent = (max==="5000") ? "any" : max;
+}
+
+function getFilteredStage1(){
+  var search = (document.getElementById("s1-search").value||"").toLowerCase();
+  var sqftMin = Number(document.getElementById("s1-sqft-min").value||0);
+  var sqftMaxRaw = document.getElementById("s1-sqft-max").value;
+  var sqftMax = sqftMaxRaw === "5000" ? Infinity : Number(sqftMaxRaw);
+  var sortMode = document.getElementById("s1-sort").value;
+
+  var rows = stage1Jobs.filter(function(l){
+    if (s1Source !== "all" && (l.source||"").toLowerCase() !== s1Source) return false;
+    var ms = macroScoreOf(l);
+    if (s1Filters.scored && (ms === null || ms === undefined)) return false;
+    if (s1Filters.hi && !(ms !== null && Number(ms) >= 3.5)) return false;
+    if (s1Filters.dup && !l.duplicate_of) return false;
+    if (search){
+      var hay = ((l.address||"")+" "+(l.agency_name||"")).toLowerCase();
+      if (hay.indexOf(search) === -1) return false;
+    }
+    if (l.sqft && (l.sqft < sqftMin || l.sqft > sqftMax)) return false;
+    return true;
+  });
+
+  rows.sort(function(a,b){
+    if (sortMode === "date-desc") return new Date(b.submitted_at||0) - new Date(a.submitted_at||0);
+    if (sortMode === "price-asc") return (a.rent||Infinity) - (b.rent||Infinity);
+    if (sortMode === "ppsf-asc"){
+      var pa = a.rent&&a.sqft ? a.rent/a.sqft : Infinity;
+      var pb = b.rent&&b.sqft ? b.rent/b.sqft : Infinity;
+      return pa-pb;
+    }
+    if (sortMode === "size-desc") return (b.sqft||0) - (a.sqft||0);
+    return (macroScoreOf(b)||0) - (macroScoreOf(a)||0);
+  });
+
+  return rows;
+}
+
 function renderStage1List(){
-  const tbody = document.getElementById("list-1");
-  if (!stage1Jobs.length){
-    tbody.innerHTML = '<tr><td colspan="11"><div class="empty"><div class="big">All caught up</div>Nothing above the macro threshold waiting on a visual check.</div></td></tr>';
+  var tbody = document.getElementById("list-1");
+  var rows = getFilteredStage1();
+  if (!rows.length){
+    tbody.innerHTML = '<tr><td colspan="11"><div class="empty"><div class="big">Nothing matches</div>Try adjusting the filters above.</div></td></tr>';
     return;
   }
-  tbody.innerHTML = stage1Jobs.map(l => {
-    const pc = extractPostcode(l.address);
-    const dupRow = l.duplicate_of ? `<div class="duprow">\u26A0 Possible duplicate — <a href="${l.duplicate_of}" target="_blank" onclick="event.stopPropagation()">view match</a></div>` : "";
-    const ms = macroScoreOf(l);
-    return `<tr onclick="openDrawer('${l.id}')">
-      <td><div class="addr1">${l.address||"—"}</div><div class="addr2">${pc}</div>${dupRow}</td>
-      <td>${l.sqft?l.sqft.toLocaleString()+" sqft":"—"}</td>
-      <td>${priceStr(l.rent)}</td>
-      <td>${ppsfStr(l.rent, l.sqft)}</td>
-      <td><span class="sp ${scoreClass(ms)}">${scoreLabel(ms)}</span></td>
-      <td><span class="sp sn">—</span></td>
-      <td><b>${scoreLabel(ms)}</b>/5</td>
-      <td>${srcTag(l.source)}${ingestBadge(l)}</td>
-      <td>${fmtDate(l.submitted_at)}</td>
-      <td>${l.agency_name||"—"}</td>
-      <td><a class="extlink" href="${l.listing_url||"#"}" target="_blank" onclick="event.stopPropagation()">↗</a></td>
-    </tr>`;
+  tbody.innerHTML = rows.map(function(l){
+    var pc = extractPostcode(l.address);
+    var dupRow = l.duplicate_of ? ('<div class="duprow">\u26A0 Possible duplicate \u2014 <a href="'+l.duplicate_of+'" target="_blank" onclick="event.stopPropagation()">view match</a></div>') : "";
+    var ms = macroScoreOf(l);
+    return '<tr onclick="openDrawer(\''+l.id+'\')">'
+      + '<td><div class="addr1">'+(l.address||"\u2014")+'</div><div class="addr2">'+pc+'</div>'+dupRow+'</td>'
+      + '<td>'+(l.sqft?l.sqft.toLocaleString()+" sqft":"\u2014")+'</td>'
+      + '<td>'+priceStr(l.rent)+'</td>'
+      + '<td>'+ppsfStr(l.rent, l.sqft)+'</td>'
+      + '<td><span class="sp '+scoreClass(ms)+'">'+scoreLabel(ms)+'</span></td>'
+      + '<td><span class="sp sn">\u2014</span></td>'
+      + '<td><b>'+scoreLabel(ms)+'</b>/5</td>'
+      + '<td>'+srcTag(l.source)+ingestBadge(l)+'</td>'
+      + '<td>'+fmtDate(l.submitted_at)+'</td>'
+      + '<td>'+(l.agency_name||"\u2014")+'</td>'
+      + '<td><a class="extlink" href="'+(l.listing_url||"#")+'" target="_blank" onclick="event.stopPropagation()">\u2197</a></td>'
+      + '</tr>';
   }).join("");
 }
 
