@@ -340,13 +340,14 @@ function renderStageGrid(counts){
 }
 
 function switchView(view){
+  if (view !== "home") view = Number(view);  // dataset.view is always a string; stagecard onclick passes a number - normalize both
   document.getElementById("home-view").style.display = view === "home" ? "block" : "none";
   document.getElementById("gear-btn-stage").style.display = view === "home" ? "none" : "block";
   document.querySelectorAll(".stageview").forEach(v=>v.classList.remove("active"));
   if (view !== "home") document.getElementById("view-"+view).classList.add("active");
 
   document.querySelectorAll("#sitenav a").forEach(a=>{
-    a.classList.toggle("active", a.dataset.view === String(view));
+    a.classList.toggle("active", String(a.dataset.view) === String(view));
   });
 
   if (view === 1) renderStage1List();
