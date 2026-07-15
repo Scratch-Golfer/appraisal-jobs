@@ -53,14 +53,14 @@ h1{font-size:18px;margin:0}
 .viewhead .num{font-weight:700;font-size:15px;color:var(--green-mid)}
 .viewhead h2{font-size:17px;margin:0}
 
-table.joblist{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
-table.joblist th{text-align:left;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.03em;padding:10px 12px;border-bottom:1px solid var(--border);background:#fafaf8}
-table.joblist td{padding:12px;border-bottom:1px solid var(--border);vertical-align:top}
-table.joblist tr:last-child td{border-bottom:none}
-table.joblist tbody tr{cursor:pointer}
+table.joblist{width:100%;border-collapse:collapse}
+table.joblist thead tr{background:var(--surface);border-bottom:1px solid var(--border2)}
+table.joblist th{padding:6px 8px;text-align:left;font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.05em;text-transform:uppercase;white-space:nowrap}
+table.joblist td{padding:6px 8px;vertical-align:middle}
+table.joblist tbody tr{border-bottom:1px solid var(--border);transition:background .1s;cursor:pointer}
 table.joblist tbody tr:hover{background:#fafaf8}
-.addr1{font-weight:600;font-size:13px}
-.addr2{font-size:10.5px;color:var(--text3);font-family:monospace;margin-top:2px}
+.addr1{font-weight:600;font-size:12px;color:var(--text)}
+.addr2{font-size:10px;color:var(--text3);font-family:monospace;margin-top:1px}
 .duprow{font-size:10.5px;color:var(--amber);margin-top:3px}
 .duprow a{color:var(--amber);text-decoration:underline}
 .poa{color:var(--text3);font-size:11px}
@@ -256,6 +256,12 @@ function scoreClass(v){ if(v===null||v===undefined) return "sn"; const n=parseFl
 function scoreLabel(v){ if(v===null||v===undefined) return "—"; return parseFloat(v).toFixed(1); }
 function ppsfStr(rent, sqft){ if(!rent||!sqft) return '<span class="poa">—</span>'; return "£"+Math.round(rent/sqft); }
 function priceStr(rent){ if(!rent) return '<span class="poa">POA</span>'; return "£"+rent.toLocaleString(); }
+function macroScoreOf(l){
+  try{
+    const d = JSON.parse(l.macro_score_data || "{}");
+    return d.decimal_score != null ? d.decimal_score : l.macro_score_v2;
+  }catch(e){ return l.macro_score_v2; }
+}
 function srcTag(s){ const labels={rightmove:"Rightmove",loopnet:"LoopNet",agent:"Agent"}; return '<span class="src">'+(labels[s]||s)+"</span>"; }
 function ingestBadge(l){
   if(!l.ingested_via) return "";
@@ -277,14 +283,14 @@ async function loadSettings(){
 
 async function loadCounts(){
   const {data: listingsData, error: e1} = await db.from("listings")
-    .select("id,address,sqft,rent,agency_name,agent_name,listing_url,source,ingested_via,submitted_at,macro_score_v2,micro_score_v2,status,duplicate_of,notes");
+    .select("id,address,sqft,rent,agency_name,agent_name,listing_url,source,ingested_via,submitted_at,macro_score_v2,macro_score_data,micro_score_v2,status,duplicate_of,notes");
   if (e1){ console.error(e1); return; }
 
   const {data: sitesData, error: e2} = await db.from("sites").select("id,job_stage,status");
   if (e2){ console.error(e2); return; }
 
   const activeListings = (listingsData||[]).filter(l => l.status !== "rejected");
-  stage1Jobs = activeListings.filter(l => l.macro_score_v2 !== null && l.macro_score_v2 !== undefined && Number(l.macro_score_v2) >= macroThreshold);
+  stage1Jobs = activeListings.filter(l => { const ms = macroScoreOf(l); return ms !== null && ms !== undefined && Number(ms) >= macroThreshold; });
 
   const activeSites = (sitesData||[]).filter(s => s.status !== "rejected");
   const counts = {1: stage1Jobs.length, 2:0, 3:0, 4:0, 5:0, 6:0};
@@ -343,14 +349,15 @@ function renderStage1List(){
   tbody.innerHTML = stage1Jobs.map(l => {
     const pc = extractPostcode(l.address);
     const dupRow = l.duplicate_of ? `<div class="duprow">\u26A0 Possible duplicate — <a href="${l.duplicate_of}" target="_blank" onclick="event.stopPropagation()">view match</a></div>` : "";
+    const ms = macroScoreOf(l);
     return `<tr onclick="openDrawer('${l.id}')">
       <td><div class="addr1">${l.address||"—"}</div><div class="addr2">${pc}</div>${dupRow}</td>
       <td>${l.sqft?l.sqft.toLocaleString()+" sqft":"—"}</td>
       <td>${priceStr(l.rent)}</td>
       <td>${ppsfStr(l.rent, l.sqft)}</td>
-      <td><span class="sp ${scoreClass(l.macro_score_v2)}">${scoreLabel(l.macro_score_v2)}</span></td>
+      <td><span class="sp ${scoreClass(ms)}">${scoreLabel(ms)}</span></td>
       <td><span class="sp sn">—</span></td>
-      <td><b>${scoreLabel(l.macro_score_v2)}</b>/5</td>
+      <td><b>${scoreLabel(ms)}</b>/5</td>
       <td>${srcTag(l.source)}${ingestBadge(l)}</td>
       <td>${fmtDate(l.submitted_at)}</td>
       <td>${l.agent_name||l.agency_name||"—"}</td>
@@ -417,7 +424,8 @@ async function submitDecision(passed, reason){
       sqft: l.sqft||null,
       rent: l.rent||null,
       macro_score_v2: l.macro_score_v2||null,
-      macro_ai_score: l.macro_score_v2||null,
+      macro_score_data: l.macro_score_data||null,
+      macro_ai_score: macroScoreOf(l)||null,
       micro_score_v2: l.micro_score_v2||null,
       notes: notes || l.notes || null,
       submitted_at: new Date().toISOString()
