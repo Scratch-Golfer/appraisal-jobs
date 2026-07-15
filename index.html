@@ -285,7 +285,7 @@ async function loadSettings(){
 
 async function loadCounts(){
   const {data: listingsData, error: e1} = await db.from("listings")
-    .select("id,address,sqft,rent,agency_name,agent_name,listing_url,source,ingested_via,submitted_at,macro_score_v2,macro_score_data,micro_score_v2,status,duplicate_of,notes");
+    .select("id,address,sqft,rent,agency_name,listing_url,source,ingested_via,submitted_at,macro_score_v2,macro_score_data,micro_score_v2,status,duplicate_of,notes");
   if (e1){ console.error(e1); return; }
 
   const {data: sitesData, error: e2} = await db.from("sites").select("id,job_stage,status");
@@ -359,7 +359,7 @@ function renderStage1List(){
       <td><b>${scoreLabel(ms)}</b>/5</td>
       <td>${srcTag(l.source)}${ingestBadge(l)}</td>
       <td>${fmtDate(l.submitted_at)}</td>
-      <td>${l.agent_name||l.agency_name||"—"}</td>
+      <td>${l.agency_name||"—"}</td>
       <td><a class="extlink" href="${l.listing_url||"#"}" target="_blank" onclick="event.stopPropagation()">↗</a></td>
     </tr>`;
   }).join("");
@@ -370,7 +370,7 @@ function openDrawer(id){
   curBaysOk = null;
   const l = stage1Jobs.find(x=>x.id===id) || {};
   document.getElementById("d-addr").textContent = l.address || "—";
-  document.getElementById("d-meta").textContent = [l.sqft?l.sqft.toLocaleString()+" sqft":"", l.agent_name||l.agency_name||""].filter(Boolean).join(" · ");
+  document.getElementById("d-meta").textContent = [l.sqft?l.sqft.toLocaleString()+" sqft":"", l.agency_name||""].filter(Boolean).join(" · ");
   document.getElementById("d-link").href = l.listing_url || "#";
   document.getElementById("d-notes").value = "";
   document.querySelectorAll(".tbtn").forEach(b=>b.classList.remove("on"));
@@ -412,7 +412,7 @@ async function submitDecision(passed, reason){
   if (passed){
     const {error: insErr} = await db.from("sites").insert({
       address: l.address,
-      agent_name: l.agent_name||null,
+      agent_name: l.agency_name||null,
       agency_name: l.agency_name||null,
       listing_url: l.listing_url||null,
       source: l.source||"Rightmove",
