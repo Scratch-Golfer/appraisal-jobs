@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Appraisal Jobs — Scratch Golf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --paper:#FAFAF7;
+  --ink:#1D2430;
+  --ink-soft:#5B6472;
+  --line:#D9DCE1;
+  --amber:#E8A33D;
+  --amber-deep:#C97F1B;
+  --pass:#3F7D4F;
+  --pass-bg:#E8F2EA;
+  --fail:#B4432F;
+  --fail-bg:#FBEAE6;
+  --card:#FFFFFF;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:'Inter',sans-serif;
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size:32px 32px;
+  background-position:-1px -1px;
+}
+.wrap{max-width:1080px;margin:0 auto;padding:28px 24px 80px}
+header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px}
+.brand{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:20px;letter-spacing:-0.01em}
+.brand span{color:var(--amber-deep)}
+.dateline{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-soft)}
+.gear{background:none;border:1px solid var(--line);border-radius:6px;width:32px;height:32px;cursor:pointer;font-size:14px;color:var(--ink-soft)}
+.gear:hover{border-color:var(--ink-soft)}
+.sub{color:var(--ink-soft);font-size:13px;margin-bottom:28px}
+
+.stagegrid{display:flex;flex-direction:column;gap:2px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.stagecard{background:var(--card);display:flex;align-items:center;gap:20px;padding:18px 22px;cursor:pointer;transition:background .12s}
+.stagecard:hover{background:#F5F3EE}
+.stagecard.disabled{cursor:default;opacity:.45}
+.stagecard.disabled:hover{background:var(--card)}
+.stagenum{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:34px;color:var(--ink);
+  width:56px;text-align:center;flex-shrink:0;position:relative}
+.stagenum::after{content:'';position:absolute;bottom:-4px;left:50%;transform:translateX(-50%);
+  width:22px;height:3px;background:var(--amber)}
+.stageinfo{flex:1}
+.stagetitle{font-weight:600;font-size:15px}
+.stagedesc{color:var(--ink-soft);font-size:12.5px;margin-top:2px}
+.stagecount{font-family:'JetBrains Mono',monospace;font-weight:600;font-size:22px;
+  background:var(--amber);color:#fff;border-radius:8px;min-width:44px;height:44px;
+  display:flex;align-items:center;justify-content:center;padding:0 10px}
+.stagecount.zero{background:var(--line);color:var(--ink-soft)}
+.chev{color:var(--ink-soft);font-size:18px}
+
+/* Stage detail view */
+.stageview{display:none}
+.stageview.active{display:block}
+.backbtn{background:none;border:none;color:var(--ink-soft);font-size:13px;cursor:pointer;padding:0;margin-bottom:16px;display:flex;align-items:center;gap:6px}
+.backbtn:hover{color:var(--ink)}
+.viewhead{display:flex;align-items:baseline;gap:12px;margin-bottom:18px}
+.viewhead .num{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:26px;color:var(--amber-deep)}
+.viewhead h2{font-size:20px;margin:0}
+
+.joblist{display:flex;flex-direction:column;gap:8px}
+.jobrow{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px;
+  display:flex;align-items:center;gap:16px;cursor:pointer}
+.jobrow:hover{border-color:var(--amber)}
+.jobaddr{flex:1;font-weight:500;font-size:14px}
+.jobmeta{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--ink-soft)}
+.scorepill{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;
+  background:#F0EEE7;border-radius:5px;padding:3px 8px}
+
+.empty{text-align:center;padding:60px 20px;color:var(--ink-soft)}
+.empty .big{font-family:'Space Grotesk',sans-serif;font-size:15px;color:var(--ink);margin-bottom:4px}
+
+/* Detail panel (drawer) */
+.overlay{display:none;position:fixed;inset:0;background:rgba(29,36,48,.35);z-index:50}
+.overlay.active{display:block}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(480px,92vw);background:var(--card);
+  z-index:51;box-shadow:-8px 0 24px rgba(0,0,0,.12);transform:translateX(100%);transition:transform .2s ease;
+  overflow-y:auto}
+.drawer.active{transform:translateX(0)}
+.drawer-inner{padding:24px}
+.drawer-close{background:none;border:none;font-size:20px;color:var(--ink-soft);cursor:pointer;float:right}
+.drawer h3{margin:0 0 4px;font-size:17px;padding-right:30px}
+.drawer .addr2{color:var(--ink-soft);font-size:12.5px;margin-bottom:18px}
+.drawer a.extlink{font-size:12.5px;color:var(--amber-deep);text-decoration:none}
+
+.checkrow{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:14px 0;border-top:1px solid var(--line)}
+.checkrow:first-of-type{border-top:none}
+.checklbl{font-size:13.5px;font-weight:500}
+.togglebtns{display:flex;gap:6px}
+.tbtn{border:1px solid var(--line);background:none;border-radius:6px;padding:6px 14px;
+  font-size:12.5px;font-weight:600;cursor:pointer;color:var(--ink-soft)}
+.tbtn.yes.on{background:var(--pass-bg);border-color:var(--pass);color:var(--pass)}
+.tbtn.no.on{background:var(--fail-bg);border-color:var(--fail);color:var(--fail)}
+
+textarea.notesbox{width:100%;border:1px solid var(--line);border-radius:8px;padding:10px 12px;
+  font-family:'Inter',sans-serif;font-size:13px;resize:vertical;min-height:70px;margin-top:8px}
+
+.decision{display:flex;gap:10px;margin-top:22px}
+.decbtn{flex:1;border:none;border-radius:8px;padding:13px;font-size:14px;font-weight:600;cursor:pointer}
+.decbtn.pass{background:var(--pass);color:#fff}
+.decbtn.fail{background:var(--fail-bg);color:var(--fail);border:1px solid var(--fail)}
+.decbtn:disabled{opacity:.4;cursor:not-allowed}
+
+.failreason{display:none;margin-top:14px}
+.failreason.show{display:block}
+.failreason input{width:100%;border:1px solid var(--fail);border-radius:8px;padding:10px 12px;font-size:13px}
+
+/* Settings modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(29,36,48,.4);z-index:60;align-items:center;justify-content:center}
+.modal-overlay.active{display:flex}
+.modal{background:var(--card);border-radius:10px;padding:24px;width:340px}
+.modal h4{margin:0 0 16px;font-size:15px}
+.modal label{font-size:12.5px;color:var(--ink-soft);display:block;margin-bottom:6px}
+.modal input{width:100%;border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:14px;
+  font-family:'JetBrains Mono',monospace;margin-bottom:16px}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end}
+.modal-actions button{border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer}
+.mbtn-cancel{background:none;color:var(--ink-soft)}
+.mbtn-save{background:var(--amber);color:#fff;font-weight:600}
+
+@media (max-width:560px){
+  .stagenum{font-size:26px;width:40px}
+  .stagedesc{display:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">Scratch Golf <span>· Jobs</span></div>
+    <button class="gear" id="gear-btn" title="Settings">⚙</button>
+  </header>
+  <div class="dateline" id="dateline"></div>
+  <div class="sub">Work through today's queue, stage by stage.</div>
+
+  <!-- HOME: stage grid -->
+  <div id="home-view">
+    <div class="stagegrid" id="stagegrid"></div>
+  </div>
+
+  <!-- STAGE 1 VIEW -->
+  <div class="stageview" id="view-1">
+    <button class="backbtn" onclick="goHome()">&larr; All stages</button>
+    <div class="viewhead"><span class="num">01</span><h2>Visual check</h2></div>
+    <div class="joblist" id="list-1"></div>
+  </div>
+
+  <!-- STAGE 2-6 placeholders -->
+  <div class="stageview" id="view-2">
+    <button class="backbtn" onclick="goHome()">&larr; All stages</button>
+    <div class="viewhead"><span class="num">02</span><h2>Get floorplan + ceiling height</h2></div>
+    <div class="empty"><div class="big">Coming soon</div>Built next.</div>
+  </div>
+  <div class="stageview" id="view-3">
+    <button class="backbtn" onclick="goHome()">&larr; All stages</button>
+    <div class="viewhead"><span class="num">03</span><h2>Assess floorplan</h2></div>
+    <div class="empty"><div class="big">Coming soon</div>Built next.</div>
+  </div>
+  <div class="stageview" id="view-4">
+    <button class="backbtn" onclick="goHome()">&larr; All stages</button>
+    <div class="viewhead"><span class="num">04</span><h2>Added detail</h2></div>
+    <div class="empty"><div class="big">Coming soon</div>Built next.</div>
+  </div>
+  <div class="stageview" id="view-5">
+    <button class="backbtn" onclick="goHome()">&larr; All stages</button>
+    <div class="viewhead"><span class="num">05</span><h2>Scratch check</h2></div>
+    <div class="empty"><div class="big">Coming soon</div>Built next.</div>
+  </div>
+  <div class="stageview" id="view-6">
+    <button class="backbtn" onclick="goHome()">&larr; All stages</button>
+    <div class="viewhead"><span class="num">06</span><h2>Schedule viewing</h2></div>
+    <div class="empty"><div class="big">Coming soon</div>Built next.</div>
+  </div>
+</div>
+
+<!-- Detail drawer -->
+<div class="overlay" id="drawer-overlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-inner">
+    <button class="drawer-close" onclick="closeDrawer()">&times;</button>
+    <h3 id="d-addr">—</h3>
+    <div class="addr2" id="d-meta">—</div>
+    <a class="extlink" id="d-link" href="#" target="_blank">View original listing →</a>
+
+    <div style="margin-top:20px">
+      <div class="checkrow">
+        <div class="checklbl">Can the property facilitate 1 or more golf bays?</div>
+        <div class="togglebtns" data-field="bays_ok">
+          <button class="tbtn yes" data-val="true">Yes</button>
+          <button class="tbtn no" data-val="false">No</button>
+        </div>
+      </div>
+      <div>
+        <label style="font-size:12.5px;color:var(--ink-soft)">Anything else worth noting?</label>
+        <textarea class="notesbox" id="d-notes" placeholder="Optional — visibility, access, obstructions, anything unusual..."></textarea>
+      </div>
+    </div>
+
+    <div class="decision">
+      <button class="decbtn fail" id="btn-fail">✕ Fail</button>
+      <button class="decbtn pass" id="btn-pass">✓ Pass — send to Stage 2</button>
+    </div>
+    <div class="failreason" id="failreason-wrap">
+      <input type="text" id="fail-reason-input" placeholder="Reason for failing (required)">
+    </div>
+  </div>
+</div>
+
+<!-- Settings modal -->
+<div class="modal-overlay" id="settings-overlay">
+  <div class="modal">
+    <h4>Settings</h4>
+    <label>Minimum macro score to enter Stage 1</label>
+    <input type="number" step="0.1" id="setting-threshold" placeholder="3.0">
+    <div class="modal-actions">
+      <button class="mbtn-cancel" onclick="closeSettings()">Cancel</button>
+      <button class="mbtn-save" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://mfhcqxquzjknzifjebvu.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_HYuBeJEs2OuKiIUOym5Fbw_55TfnxAH';
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let macroThreshold = 3.0;
+let stage1Jobs = [];
+let curJobId = null;
+let curBaysOk = null;
+
+const STAGE_META = [
+  {n:1, title:'Visual check', desc:'Can it fit 1+ golf bays? Quick pass/fail.'},
+  {n:2, title:'Get floorplan + ceiling height', desc:'Chase the agent daily until received.'},
+  {n:3, title:'Assess floorplan', desc:'Place bays, set scale, check cost per bay.'},
+  {n:4, title:'Added detail', desc:'Call the agent for landlord, price, service charge.'},
+  {n:5, title:'Scratch check', desc:'Senior review — ready for a viewing?'},
+  {n:6, title:'Schedule viewing', desc:'Book it in, attach details to the calendar.'},
+];
+
+function todayStr(){
+  const d = new Date();
+  return d.toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long'});
+}
+document.getElementById('dateline').textContent = todayStr();
+
+function macroScore(s){
+  if (s.macro_human_score != null) return Number(s.macro_human_score);
+  if (s.macro_ai_score != null) return Number(s.macro_ai_score);
+  return null;
+}
+
+async function loadSettings(){
+  try{
+    const {data} = await db.from('app_settings').select('*').eq('key','macro_threshold').single();
+    if (data && data.value) macroThreshold = parseFloat(data.value);
+  }catch(e){ console.warn('settings load failed, using default', e); }
+}
+
+async function loadCounts(){
+  const {data, error} = await db.from('sites').select('id,job_stage,macro_ai_score,macro_human_score,status');
+  if (error){ console.error(error); return; }
+  const active = (data||[]).filter(s => s.status !== 'rejected');
+
+  stage1Jobs = active.filter(s => (s.job_stage||1) === 1 && macroScore(s) !== null && macroScore(s) >= macroThreshold);
+
+  const counts = {1: stage1Jobs.length, 2:0, 3:0, 4:0, 5:0, 6:0};
+  for (let n=2;n<=6;n++){
+    counts[n] = active.filter(s => (s.job_stage||1) === n).length;
+  }
+  renderStageGrid(counts);
+}
+
+function renderStageGrid(counts){
+  const grid = document.getElementById('stagegrid');
+  grid.innerHTML = STAGE_META.map(st => {
+    const c = counts[st.n] || 0;
+    const built = st.n === 1;
+    return `<div class="stagecard ${built?'':'disabled'}" ${built?`onclick="openStage(${st.n})"`:''}>
+      <div class="stagenum">${String(st.n).padStart(2,'0')}</div>
+      <div class="stageinfo">
+        <div class="stagetitle">${st.title}</div>
+        <div class="stagedesc">${st.desc}</div>
+      </div>
+      <div class="stagecount ${c===0?'zero':''}">${c}</div>
+      <div class="chev">${built?'→':''}</div>
+    </div>`;
+  }).join('');
+}
+
+function openStage(n){
+  document.getElementById('home-view').style.display = 'none';
+  document.getElementById('view-'+n).classList.add('active');
+  if (n===1) renderStage1List();
+}
+function goHome(){
+  document.querySelectorAll('.stageview').forEach(v=>v.classList.remove('active'));
+  document.getElementById('home-view').style.display = 'block';
+}
+
+function renderStage1List(){
+  const el = document.getElementById('list-1');
+  if (!stage1Jobs.length){
+    el.innerHTML = '<div class="empty"><div class="big">All caught up</div>Nothing above the macro threshold waiting on a visual check.</div>';
+    return;
+  }
+  el.innerHTML = stage1Jobs.map(s => `
+    <div class="jobrow" onclick="openDrawer('${s.id}')">
+      <div class="jobaddr">${s.address||'—'}</div>
+      <div class="jobmeta">${s.sqft?s.sqft.toLocaleString()+' sqft':''}</div>
+      <div class="scorepill">Macro ${macroScore(s).toFixed(1)}</div>
+    </div>
+  `).join('');
+}
+
+function openDrawer(id){
+  curJobId = id;
+  curBaysOk = null;
+  const s = stage1Jobs.find(x=>x.id===id) || {};
+  document.getElementById('d-addr').textContent = s.address || '—';
+  document.getElementById('d-meta').textContent = [s.sqft?s.sqft.toLocaleString()+' sqft':'', s.agent_name||s.agency_name||''].filter(Boolean).join(' · ');
+  document.getElementById('d-link').href = s.listing_url || '#';
+  document.getElementById('d-notes').value = '';
+  document.querySelectorAll('.tbtn').forEach(b=>b.classList.remove('on'));
+  document.getElementById('failreason-wrap').classList.remove('show');
+  document.getElementById('fail-reason-input').value = '';
+  document.getElementById('btn-pass').disabled = true;
+  document.getElementById('drawer').classList.add('active');
+  document.getElementById('drawer-overlay').classList.add('active');
+}
+function closeDrawer(){
+  document.getElementById('drawer').classList.remove('active');
+  document.getElementById('drawer-overlay').classList.remove('active');
+}
+
+document.querySelectorAll('.tbtn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.tbtn').forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on');
+    curBaysOk = btn.dataset.val === 'true';
+    document.getElementById('btn-pass').disabled = (curBaysOk !== true);
+  });
+});
+
+document.getElementById('btn-fail').addEventListener('click', ()=>{
+  const wrap = document.getElementById('failreason-wrap');
+  if (!wrap.classList.contains('show')){
+    wrap.classList.add('show');
+    return;
+  }
+  const reason = document.getElementById('fail-reason-input').value.trim();
+  if (!reason){ alert('Add a reason for failing before submitting.'); return; }
+  submitDecision(false, reason);
+});
+
+document.getElementById('btn-pass').addEventListener('click', ()=>{
+  submitDecision(true, null);
+});
+
+async function submitDecision(passed, reason){
+  const notes = document.getElementById('d-notes').value.trim();
+  const patch = passed
+    ? {job_stage: 2, notes: notes || null}
+    : {status: 'rejected', rejection_reason: reason, notes: notes || null};
+  const {error} = await db.from('sites').update(patch).eq('id', curJobId);
+  if (error){ alert('Error saving: '+error.message); return; }
+  closeDrawer();
+  await loadCounts();
+  renderStage1List();
+}
+
+// Settings
+document.getElementById('gear-btn').addEventListener('click', ()=>{
+  document.getElementById('setting-threshold').value = macroThreshold;
+  document.getElementById('settings-overlay').classList.add('active');
+});
+function closeSettings(){ document.getElementById('settings-overlay').classList.remove('active'); }
+async function saveSettings(){
+  const v = parseFloat(document.getElementById('setting-threshold').value);
+  if (isNaN(v)){ alert('Enter a valid number'); return; }
+  macroThreshold = v;
+  await db.from('app_settings').upsert({key:'macro_threshold', value:String(v)});
+  closeSettings();
+  await loadCounts();
+  if (document.getElementById('view-1').classList.contains('active')) renderStage1List();
+}
+
+(async function init(){
+  await loadSettings();
+  await loadCounts();
+})();
+</script>
+</body>
+</html>
