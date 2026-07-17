@@ -8,6 +8,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="macro-scoring.js"></script>
+<script src="micro-scoring.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -287,6 +288,7 @@ function renderStageGridSummary(){
 var SUPABASE_URL='https://mfhcqxquzjknzifjebvu.supabase.co';
 var SUPABASE_ANON_KEY='sb_publishable_HYuBeJEs2OuKiIUOym5Fbw_55TfnxAH';
 var db=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+var EDGE_FN=SUPABASE_URL+'/functions/v1/hyper-worker';
 
 function daysAgo(n){var d=new Date();d.setDate(d.getDate()-n);return d.toISOString().split('T')[0];}
 
@@ -341,6 +343,7 @@ async function loadListings(){
   render();
   updateCounts();
   if(document.getElementById('overlay-home')&&document.getElementById('overlay-home').style.display!=='none')renderStageGridSummary();
+  scoreAll(); // auto-score anything new — macro + micro — no button click needed
 }
 var curTab='inbox',srcFilter='all',extraFilters={scored:false,hi:false,dup:false};
 var sortCol='macro',sortDir='desc';
@@ -469,6 +472,54 @@ async function scoreOne(l){
       submitted_at:l.submitted_at||new Date().toISOString()
     }).eq('id',l._dbId);
   }
+
+  // Step 4: micro score (Google Places footfall/intent + Claude street-character read),
+  // ported verbatim in logic from locationtool/index.html's runV2Micro — same formula,
+  // just writing to the listings table instead of sites.
+  if(l.micro==null){
+    try{await scoreMicroOne(l);}catch(e){console.warn('Micro score failed for',l.addr,e);}
+  }
+  return true;
+}
+
+async function scoreMicroOne(l){
+  var lat=l.lat,lng=l.lng,fmt=l.fullAddr||l.addr;
+  if(!lat||!lng){
+    var gr=await fetch('https://maps.googleapis.com/maps/api/geocode/json?address='+encodeURIComponent(fmt)+'&region=gb&key='+GK);
+    var gd=await gr.json();
+    if(gd.status!=='OK'||!gd.results.length)throw new Error('Address not found for micro score');
+    lat=gd.results[0].geometry.location.lat;lng=gd.results[0].geometry.location.lng;fmt=gd.results[0].formatted_address;
+  }
+  var streetMatch=fmt.match(/\d+\s+([\w\s]+(?:Road|Street|Lane|Avenue|Way|Place|Row|Terrace|Gardens|Grove|Hill|Parade|Rise|Walk|Mews|Close|Court|Yard|Passage|Crescent|Drive|Broadway|High\s+Street)[\w\s]*?)(?:,|\s+London)/i);
+  var streetName=streetMatch?streetMatch[1].trim():'unknown street';
+
+  var pr2=await fetch('https://places.googleapis.com/v1/places:searchNearby',{method:'POST',headers:{'Content-Type':'application/json','X-Goog-Api-Key':GK,'X-Goog-FieldMask':'places.displayName,places.types,places.rating,places.userRatingCount'},body:JSON.stringify({locationRestriction:{circle:{center:{latitude:lat,longitude:lng},radius:400.0}},maxResultCount:20})});
+  var pd=await pr2.json();var pl400=(pd.places||[]).map(function(p){return{name:(p.displayName||{}).text||'',types:p.types||['establishment'],user_ratings_total:p.userRatingCount||0};});
+  var totalRev400=pl400.reduce(function(s,p){return s+(p.user_ratings_total||0);},0);
+
+  var pl100=[];
+  try{
+    var sr=await fetch('https://places.googleapis.com/v1/places:searchNearby',{method:'POST',headers:{'Content-Type':'application/json','X-Goog-Api-Key':GK,'X-Goog-FieldMask':'places.displayName,places.types,places.userRatingCount'},body:JSON.stringify({locationRestriction:{circle:{center:{latitude:lat,longitude:lng},radius:100.0}},maxResultCount:20})});
+    var sd=await sr.json();
+    pl100=(sd.places||[]).map(function(p){return{name:(p.displayName||{}).text||'',types:p.types||['establishment'],user_ratings_total:p.userRatingCount||0};});
+  }catch(e){}
+  var totalRev100=pl100.reduce(function(s,p){return s+(p.user_ratings_total||0);},0);
+
+  var pv=pl400.filter(function(p){return cv2(p.types,p.name)==='pos';}).sort(function(a,b){return(b.user_ratings_total||0)-(a.user_ratings_total||0);}).slice(0,8).map(function(p){return p.name+' ('+(p.user_ratings_total||0)+')';});
+  var nv=pl400.filter(function(p){return cv2(p.types,p.name)==='neg';}).map(function(p){return p.name;});
+  var prompt='Score this London location for Scratch Golf (golf simulator, 30-34 professionals, 41% find us walking past).\nAddress: '+fmt+'\nStreet: '+streetName+'\nBusinesses ON this street ('+pl100.length+' found): '+(pl100.map(function(p){return p.name;}).join(', ')||'very few / none')+'\nPositive venues within 400m: '+(pv.join(', ')||'None')+'\nNegative venues within 400m: '+(nv.join(', ')||'None')+'\nKey question: is this STREET itself busy with passing trade, or is it a quiet side street near a busy area?\nScore 1-5: 1=hidden residential/industrial 2=quiet side street, low visibility 3=moderate passing trade 4=busy through-route/active evenings 5=exceptional footfall on the street itself\nReply ONLY: {"score":3,"reasoning":"2-3 sentences on what the street itself is like for a walk-past business"}';
+  var ar=await fetch(EDGE_FN,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPABASE_ANON_KEY},body:JSON.stringify({prompt:prompt})});
+  var at=await ar.text();if(!at)throw new Error('Empty AI response');
+  var ad=JSON.parse(at);var ai=Math.min(5,Math.max(1,Math.round(parseFloat(ad.score||3))));
+  var vs=weightedVol(pl100,pl400),is=weightedIntent(pl100,pl400),ms=Math.min(5,Math.max(1,Math.round(vs*.30+is*.35+ai*.35)));
+
+  var microData=JSON.stringify({vol_score:vs,intent_score:is,ai_score:ai,radius:'weighted-100m70-400m30',places:pl100,places_400m:pl400,total_reviews:totalRev100,total_reviews_400m:totalRev400,pos_count:pl100.filter(function(p){return cv2(p.types,p.name)==='pos';}).length});
+
+  l.micro=ms;l.micro_reasoning=ad.reasoning||'';l.micro_data=microData;l.lat=lat;l.lng=lng;
+  l.combined=(l.macro!=null)?(l.macro*0.6+ms*0.4).toFixed(1):ms;
+  if(l._dbId){
+    await db.from('listings').update({micro_score_v2:ms,micro_score_v2_reasoning:ad.reasoning||'',micro_score_data:microData}).eq('id',l._dbId);
+  }
   return true;
 }
 
@@ -483,6 +534,7 @@ async function scoreAll(){
       if(l.macro_reasoning)return false;
       return true; // never attempted at all
     }
+    if(l.micro===null)return true; // macro is done but micro hasn't run yet
     // Also re-score if missing abs_professionals or msoa_code
     try{
       var d=JSON.parse(l.macro_data||'{}');
@@ -651,7 +703,9 @@ function isActionedToday(l){
   return !!(la&&isSameDay(la.date));
 }
 var ACTION_LABELS={no_answer:'Called - no answer',agent_emailing:'Called - Agent emailing',redirect:'Called - took details to redirect'};
+var pendingOther={};
 function parseTodayAction(l){
+  if(pendingOther[l.id])return {code:'other',text:''};
   var la=latestAction(l);
   if(!la||!isSameDay(la.date))return {code:null,text:''};
   var text=la.text||'';
@@ -678,7 +732,8 @@ function handleTodayAction(id,code,selectEl){
   var l=listings.find(function(x){return x.id===id;});
   if(!l)return;
   if(!code)return;
-  if(code==='other'){render();return;} // just reveal the text box, wait for reason to be typed
+  if(code==='other'){pendingOther[id]=true;render();return;} // reveal the text box, wait for reason to be typed
+  pendingOther[id]=false;
   logTodayAction(l,ACTION_LABELS[code]);
 }
 function saveOtherReason(id,val){
@@ -686,6 +741,7 @@ function saveOtherReason(id,val){
   if(!l)return;
   var trimmed=(val||'').trim();
   if(!trimmed)return;
+  pendingOther[id]=false;
   logTodayAction(l,'Other: '+trimmed);
 }
 async function saveEmailedAgent(id,val){
@@ -797,7 +853,7 @@ function render(){
           +'<option value="redirect"'+(parsed.code==='redirect'?' selected':'')+'>Called - took details to redirect</option>'
           +'<option value="other"'+(parsed.code==='other'?' selected':'')+'>Other</option>'
           +'</select>'
-          +(parsed.code==='other'?'<input type="text" value="'+(parsed.text||'').replace(/"/g,'&quot;')+'" placeholder="Reason…" onclick="event.stopPropagation()" onblur="saveOtherReason(\''+l.id+'\',this.value)" onkeydown="if(event.key===\'Enter\')this.blur()" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;font-family:inherit;width:90px">':'')
+          +(parsed.code==='other'?'<input type="text" id="otherinput-'+l.id+'" value="'+(parsed.text||'').replace(/"/g,'&quot;')+'" placeholder="Reason…" onclick="event.stopPropagation()" onblur="saveOtherReason(\''+l.id+'\',this.value)" onkeydown="if(event.key===\'Enter\')this.blur()" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;font-family:inherit;width:90px">':'')
           +'</div>'
           +'</td>';
       }()):'')+
@@ -814,6 +870,9 @@ function render(){
           :'<button class="act rst" onclick="action(\''+l.id+'\',\'inbox\')">↩</button>')+
       '</td></tr>';
   }).join('');
+  Object.keys(pendingOther).forEach(function(id){
+    if(pendingOther[id]){var el=document.getElementById('otherinput-'+id);if(el)el.focus();}
+  });
 }
 
 
@@ -837,9 +896,41 @@ async function showMSOABoundary(msoaCode){
   }catch(e){console.warn('MSOA boundary failed:',e);}
 }
 
+var _dpMiniMap=null;
 function closeDetail(){
   var p=document.getElementById('dp');if(p)p.remove();
   if(_msoaLayer&&mapObj){mapObj.removeLayer(_msoaLayer);_msoaLayer=null;}
+  if(_dpMiniMap){_dpMiniMap.remove();_dpMiniMap=null;}
+}
+async function initDetailMiniMap(l){
+  var el=document.getElementById('dp-minimap');
+  if(!el)return;
+  if(_dpMiniMap){_dpMiniMap.remove();_dpMiniMap=null;}
+  var lat=l.lat,lng=l.lng;
+  if(!lat||!lng){
+    try{
+      var gR=await fetch('https://maps.googleapis.com/maps/api/geocode/json?address='+encodeURIComponent((l.postcode||l.fullAddr||l.addr||'')+', UK')+'&region=gb&key='+GK);
+      var gD=await gR.json();
+      if(gD.status==='OK'&&gD.results.length){lat=gD.results[0].geometry.location.lat;lng=gD.results[0].geometry.location.lng;l.lat=lat;l.lng=lng;}
+    }catch(e){}
+  }
+  if(!document.getElementById('dp-minimap'))return; // sidebar closed while we were geocoding
+  if(!lat||!lng){el.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#aaa;font-size:11px">Location unavailable</div>';return;}
+  _dpMiniMap=L.map('dp-minimap',{zoomControl:false,attributionControl:false}).setView([lat,lng],15);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:19}).addTo(_dpMiniMap);
+  L.marker([lat,lng]).addTo(_dpMiniMap);
+  var msoaCode=null;
+  try{msoaCode=l.msoa_code||(JSON.parse(l.macro_data||'{}').msoa_code)||null;}catch(e){}
+  if(msoaCode){
+    try{
+      var url='https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/Middle_layer_Super_Output_Areas_December_2021_Boundaries_EW_BGC_V3/FeatureServer/0/query?where=MSOA21CD%3D%27'+msoaCode+'%27&outFields=MSOA21CD,MSOA21NM&f=geojson';
+      var r=await fetch(url);var gj=await r.json();
+      if(gj.features&&gj.features.length&&_dpMiniMap){
+        L.geoJSON(gj,{style:{color:'#3B6D11',weight:2,fillColor:'#3B6D11',fillOpacity:.1,dashArray:'4 4'}}).addTo(_dpMiniMap);
+      }
+    }catch(e){}
+  }
+  setTimeout(function(){if(_dpMiniMap)_dpMiniMap.invalidateSize();},100);
 }
 function buildEnquiryDetailBlock(l){
   var id=l.id;
@@ -943,7 +1034,26 @@ function showDetail(id){
         +'<tbody>'+sigRows+'</tbody></table></div>';
     }
   }else{
-    inner+='<div style="color:#888;font-size:12px;padding:12px;background:#f5f4f0;border-radius:6px;margin-bottom:16px">Not yet scored — hit Auto-score all</div>';
+    inner+='<div style="color:#888;font-size:12px;padding:12px;background:#f5f4f0;border-radius:6px;margin-bottom:16px">Not yet scored — scoring runs automatically, check back shortly</div>';
+  }
+  inner+='<div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#888;margin-bottom:8px;margin-top:16px">Micro score</div>';
+  var mid={};try{mid=JSON.parse(l.micro_data||'{}');}catch(e){}
+  if(l.micro!=null){
+    var micC=l.micro>=4?'#2d6b0a':l.micro>=3?'#854F0B':'#8b2020';
+    var micB=l.micro>=4?'#e8f5d6':l.micro>=3?'#fef3e2':'#fceaea';
+    inner+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
+      +'<span style="display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;background:'+micB+';color:'+micC+';font-size:18px;font-weight:700;flex-shrink:0">'+l.micro+'</span>'
+      +'<div style="font-size:11px;color:#444;line-height:1.5">'+(l.micro_reasoning||'')+'</div>'
+      +'</div>';
+    if(mid.vol_score!=null){
+      inner+='<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">'
+        +'<div style="flex:1;min-width:70px;background:#f5f4f0;border-radius:5px;padding:8px 10px"><div style="font-size:9px;color:#888;font-weight:600;letter-spacing:.04em">VOLUME</div><div style="font-size:17px;font-weight:700;color:#3B6D11">'+mid.vol_score+'<span style="font-size:10px;opacity:.5">/5</span></div></div>'
+        +'<div style="flex:1;min-width:70px;background:#f5f4f0;border-radius:5px;padding:8px 10px"><div style="font-size:9px;color:#888;font-weight:600;letter-spacing:.04em">INTENT</div><div style="font-size:17px;font-weight:700;color:#3B6D11">'+mid.intent_score+'<span style="font-size:10px;opacity:.5">/5</span></div></div>'
+        +'<div style="flex:1;min-width:70px;background:#f5f4f0;border-radius:5px;padding:8px 10px"><div style="font-size:9px;color:#888;font-weight:600;letter-spacing:.04em">CHARACTER</div><div style="font-size:17px;font-weight:700;color:#3B6D11">'+mid.ai_score+'<span style="font-size:10px;opacity:.5">/5</span></div></div>'
+        +'</div>';
+    }
+  }else{
+    inner+='<div style="color:#888;font-size:12px;padding:12px;background:#f5f4f0;border-radius:6px;margin-bottom:16px">Not yet scored — scoring runs automatically, check back shortly</div>';
   }
   var btnStyle='flex:1;padding:9px;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;';
   var hist=(l.action_history||[]).slice().reverse();
@@ -967,7 +1077,9 @@ function showDetail(id){
   if(l.status==='inbox')inner+='<button id="dp-enq" style="'+btnStyle+'background:#1C3A0E;color:white">\u2713 Pass \u2192 Stage 2</button>';
   if(l.status==='enquiry')inner+='<button id="dp-acc" style="'+btnStyle+'background:#1C3A0E;color:white">✓ Pipeline</button>';
   inner+='<button id="dp-rej" style="'+btnStyle+'background:#fceaea;color:#8b2020;border:1px solid #f0c0c0">✗ Reject</button>';
-  inner+='</div></div></div>';
+  inner+='</div>';
+  inner+='<div id="dp-minimap" style="height:180px;border-radius:6px;overflow:hidden;margin-top:12px;background:#eee"></div>';
+  inner+='</div></div>';
   p.innerHTML=inner;
   document.body.appendChild(p);
   document.getElementById('dp-close').onclick=closeDetail;
@@ -992,20 +1104,8 @@ function showDetail(id){
     showMSOABoundary(msoaCode);
     if(l.lat&&l.lng)mapObj.flyTo([l.lat,l.lng],15,{duration:0.8});
   }
-  // Add a "Show on map" button in the panel if MSOA available
-  if(msoaCode){
-    var mapBtn=document.createElement('button');
-    mapBtn.textContent='Show on map';
-    mapBtn.style.cssText='width:100%;padding:8px;margin-top:8px;background:#f0f7e8;color:#3B6D11;border:1px solid #c8e6a0;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit';
-    mapBtn.onclick=function(){
-      setView('map');
-      setTimeout(function(){
-        if(msoaCode)showMSOABoundary(msoaCode);
-        if(l.lat&&l.lng)mapObj.flyTo([l.lat,l.lng],15,{duration:0.8});
-      },150);
-    };
-    p.querySelector('div:last-child').before(mapBtn);
-  }
+  // Load the inline mini-map at the bottom of the sidebar automatically — no click needed
+  initDetailMiniMap(l);
 }
 
 function rowClick(e,id){
