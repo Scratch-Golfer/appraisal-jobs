@@ -84,6 +84,8 @@ tbody tr{border-bottom:1px solid var(--border);transition:background .1s;cursor:
 tbody tr:hover{background:#fafaf8}
 tbody tr.selected{background:#eef5fb}
 tbody tr.highlighted{background:#fff8e8;outline:2px solid var(--amber);outline-offset:-2px}
+tbody tr.row-awaiting{border-left:3px solid var(--amber)}
+tbody tr.row-actioned{border-left:3px solid var(--green);opacity:.72}
 td{padding:6px 8px;vertical-align:middle}
 td.addr-cell{max-width:150px;white-space:normal;line-height:1.3}
 .a1{font-weight:600;font-size:12px;color:var(--text)}
@@ -136,9 +138,8 @@ input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--bl
   <a data-view="1" onclick="switchStageView('1')">Visual Check</a>
   <a data-view="2" onclick="switchStageView('2')">Get Floorplan</a>
   <a data-view="3" onclick="switchStageView('3')">Assess Floorplan</a>
-  <a data-view="4" onclick="switchStageView('4')">Added Detail</a>
-  <a data-view="5" onclick="switchStageView('5')">Scratch Check</a>
-  <a data-view="6" onclick="switchStageView('6')">Schedule Viewing</a>
+  <a data-view="4" onclick="switchStageView('4')">Scratch Check</a>
+  <a data-view="5" onclick="switchStageView('5')">Schedule Viewing</a>
 </nav>
 
 <div id="overlay-home" style="display:none;position:fixed;top:44px;left:0;right:0;bottom:0;background:#f7f6f3;z-index:900;overflow-y:auto;padding:24px">
@@ -161,11 +162,10 @@ function switchStageView(view){
 function renderStageGridSummary(){
   var meta = [
     {n:1, title:"Visual check", desc:"Can it fit 1+ golf bays? Quick pass/fail."},
-    {n:2, title:"Get floorplan + ceiling height", desc:"Chase the agent daily until received."},
+    {n:2, title:"Get floorplan + added detail", desc:"Chase the agent daily for floorplan, ceiling height, rent, and availability."},
     {n:3, title:"Assess floorplan", desc:"Place bays, set scale, check cost per bay."},
-    {n:4, title:"Added detail", desc:"Call the agent for landlord, price, service charge."},
-    {n:5, title:"Scratch check", desc:"Senior review \u2014 ready for a viewing?"},
-    {n:6, title:"Schedule viewing", desc:"Book it in, attach details to the calendar."}
+    {n:4, title:"Scratch check", desc:"Senior review \u2014 ready for a viewing?"},
+    {n:5, title:"Schedule viewing", desc:"Book it in, attach details to the calendar."}
   ];
   var stage1Count = listings.filter(function(l){ return l.status === "inbox"; }).length;
   var stage2Count = listings.filter(function(l){ return l.status === "enquiry"; }).length;
@@ -266,8 +266,9 @@ function renderStageGridSummary(){
           <th>Source</th>
           <th onclick="sortBy('date')">Added</th>
           <th>Agent</th>
-          <th id="th-lastact" style="display:none">Last action</th>
-          <th id="th-nextact" style="display:none">Next action</th>
+          <th id="th-emailed" style="display:none">Emailed</th>
+          <th id="th-today" style="display:none">Today</th>
+          <th id="th-todayact" style="display:none">Today's action</th>
           <th></th>
         </tr>
       </thead>
@@ -321,6 +322,12 @@ async function loadListings(){
       micro_reasoning:r.micro_score_v2_reasoning||'',
       action_history:(Array.isArray(r.action_history)?r.action_history:[]),
       next_action:r.next_action||'',
+      emailed_agent:!!r.emailed_agent,
+      ceiling_ok:!!r.ceiling_ok,
+      floorplan_url:r.floorplan_url||'',
+      best_rent_price:r.best_rent_price,
+      time_on_market:r.time_on_market||'',
+      ready_to_let:!!r.ready_to_let,
       macro_data:r.macro_score_data||null,
       micro_data:r.micro_score_data||null,
       status:r.status||'inbox',
@@ -552,7 +559,7 @@ async function sendToProspecting(l){
     stage:0,
     job_stage:3,
     status:'active',
-    ceiling_ok:false,
+    ceiling_ok:!!l.ceiling_ok,
     sqft:l.size||null,
     rent:l.price||null,
     macro_score_v2:l.macro||null,
@@ -634,6 +641,91 @@ function latestAction(l){
   var h=l.action_history||[];
   return h.length?h[h.length-1]:null;
 }
+function isSameDay(iso){
+  if(!iso)return false;
+  var d=new Date(iso),now=new Date();
+  return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth()&&d.getDate()===now.getDate();
+}
+function isActionedToday(l){
+  var la=latestAction(l);
+  return !!(la&&isSameDay(la.date));
+}
+var ACTION_LABELS={no_answer:'Called - no answer',agent_emailing:'Called - Agent emailing',redirect:'Called - took details to redirect'};
+function parseTodayAction(l){
+  var la=latestAction(l);
+  if(!la||!isSameDay(la.date))return {code:null,text:''};
+  var text=la.text||'';
+  for(var code in ACTION_LABELS){if(text===ACTION_LABELS[code])return {code:code,text:''};}
+  if(text.indexOf('Other: ')===0)return {code:'other',text:text.slice(7)};
+  return {code:null,text:''};
+}
+async function logTodayAction(l,text){
+  var nowIso=new Date().toISOString();
+  var la=latestAction(l);
+  // Replace today's existing entry rather than stacking duplicates if it's already logged today
+  if(la&&isSameDay(la.date)){
+    l.action_history=(l.action_history||[]).slice(0,-1).concat([{text:text,date:nowIso}]);
+  }else{
+    l.action_history=(l.action_history||[]).concat([{text:text,date:nowIso}]);
+  }
+  if(l._dbId){
+    try{await db.from('listings').update({action_history:l.action_history}).eq('id',l._dbId);toast('Saved');}
+    catch(e){console.warn('Failed to save action_history:',e);toast('Error saving');}
+  }
+  render();
+}
+function handleTodayAction(id,code,selectEl){
+  var l=listings.find(function(x){return x.id===id;});
+  if(!l)return;
+  if(!code)return;
+  if(code==='other'){render();return;} // just reveal the text box, wait for reason to be typed
+  logTodayAction(l,ACTION_LABELS[code]);
+}
+function saveOtherReason(id,val){
+  var l=listings.find(function(x){return x.id===id;});
+  if(!l)return;
+  var trimmed=(val||'').trim();
+  if(!trimmed)return;
+  logTodayAction(l,'Other: '+trimmed);
+}
+async function saveEmailedAgent(id,val){
+  var l=listings.find(function(x){return x.id===id;});
+  if(!l)return;
+  l.emailed_agent=val;
+  if(l._dbId){
+    try{await db.from('listings').update({emailed_agent:val}).eq('id',l._dbId);toast('Saved');}
+    catch(e){console.warn('Failed to save emailed_agent:',e);toast('Error saving');}
+  }
+}
+async function saveListingField(id,field,val){
+  var l=listings.find(function(x){return x.id===id;});
+  if(!l)return;
+  l[field]=val;
+  if(l._dbId){
+    try{
+      var upd={};upd[field]=val;
+      await db.from('listings').update(upd).eq('id',l._dbId);
+      toast('Saved');
+    }catch(e){console.warn('Failed to save '+field+':',e);toast('Error saving');}
+  }
+}
+async function uploadFloorplan(id,fileInput){
+  var l=listings.find(function(x){return x.id===id;});
+  if(!l||!fileInput.files||!fileInput.files[0])return;
+  var file=fileInput.files[0];
+  var path=id+'/'+Date.now()+'_'+file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+  toast('Uploading…');
+  try{
+    var up=await db.storage.from('floorplans').upload(path,file,{upsert:true});
+    if(up.error)throw new Error(up.error.message);
+    var pub=db.storage.from('floorplans').getPublicUrl(path);
+    var url=pub.data.publicUrl;
+    l.floorplan_url=url;
+    if(l._dbId)await db.from('listings').update({floorplan_url:url}).eq('id',l._dbId);
+    toast('✓ Floorplan uploaded');
+    showDetail(id);
+  }catch(e){console.warn('Floorplan upload failed:',e);toast('Upload failed: '+e.message);}
+}
 async function saveLastAction(id,val){
   var l=listings.find(function(x){return x.id===id;});
   if(!l)return;
@@ -673,7 +765,7 @@ function render(){
   if(!rows.length){tbody.innerHTML='';empty.style.display='block';return;}
   empty.style.display='none';
   tbody.innerHTML=rows.map(function(l){
-    return '<tr class="'+(l.selected?'selected':'')+'" onclick="rowClick(event,\''+l.id+'\')" id="tr-'+l.id+'">'+
+    return '<tr class="'+(l.selected?'selected':'')+(curTab==='enquiry'?(isActionedToday(l)?' row-actioned':' row-awaiting'):'')+'" onclick="rowClick(event,\''+l.id+'\')" id="tr-'+l.id+'">'+
       '<td onclick="event.stopPropagation()"><input type="checkbox" '+(l.selected?'checked':'')+' onchange="toggleSel(\''+l.id+'\',this.checked)"></td>'+
       '<td class="addr-cell"><div class="a1">'+l.addr+'</div><div class="a2">'+l.area+'</div><div class="a3" title="'+(isFullPostcode(l.postcode)?'':' — district only, cannot score')+'">'+l.postcode+(isFullPostcode(l.postcode)?'':'<span style="color:var(--amber);margin-left:3px" title="District-only postcode — cannot score precisely">⚠</span>')+'</div>'+(l.duplicate_of?'<div style="font-size:10px;color:var(--amber);margin-top:2px">⚠ Possible duplicate — <a href="'+l.duplicate_of+'" target="_blank" onclick="event.stopPropagation()" style="color:var(--amber)">view match</a></div>':'')+'</td>'+
       '<td style="white-space:nowrap">'+(l.size?l.size.toLocaleString()+' sqft':'—')+'</td>'+
@@ -686,20 +778,28 @@ function render(){
       '<td class="date-cell">'+fmtDate(l.date)+'</td>'+
       '<td style="font-size:11px;color:var(--text2);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+l.agent+'</td>'+
       (curTab==='enquiry'?(function(){
-        var la=latestAction(l);
-        return '<td onclick="event.stopPropagation()" style="min-width:170px">'
-          +'<div style="display:flex;align-items:center;gap:5px">'
-          +'<input type="text" value="'+(la?la.text.replace(/"/g,'&quot;'):'')+'" placeholder="e.g. Called agent"'
-          +' style="flex:1;min-width:0;border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-size:11px;font-family:inherit"'
-          +' onclick="event.stopPropagation()" onkeydown="if(event.key===\'Enter\')this.blur()" onblur="saveLastAction(\''+l.id+'\',this.value)">'
-          +'<span style="font-size:9px;color:var(--text3);white-space:nowrap;flex-shrink:0">'+(la?fmtDate(la.date):'')+'</span>'
+        var todayDone=isActionedToday(l);
+        var parsed=parseTodayAction(l);
+        return '<td onclick="event.stopPropagation()" style="text-align:center">'
+          +'<input type="checkbox" '+(l.emailed_agent?'checked':'')+' onchange="saveEmailedAgent(\''+l.id+'\',this.checked)" title="Emailed agent requesting floorplan">'
+          +'</td>'
+          +'<td onclick="event.stopPropagation()">'
+          +(todayDone
+            ?'<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;background:var(--green-bg);color:var(--green)">✓ Actioned</span>'
+            :'<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;background:var(--amber-bg);color:var(--amber)">⏳ Awaiting</span>')
+          +'</td>'
+          +'<td onclick="event.stopPropagation()" style="min-width:190px">'
+          +'<div style="display:flex;gap:4px;align-items:center">'
+          +'<select onchange="handleTodayAction(\''+l.id+'\',this.value,this)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;font-family:inherit;flex:1;min-width:0">'
+          +'<option value="">'+(todayDone?'— change —':'— select —')+'</option>'
+          +'<option value="no_answer"'+(parsed.code==='no_answer'?' selected':'')+'>Called - no answer</option>'
+          +'<option value="agent_emailing"'+(parsed.code==='agent_emailing'?' selected':'')+'>Called - Agent emailing</option>'
+          +'<option value="redirect"'+(parsed.code==='redirect'?' selected':'')+'>Called - took details to redirect</option>'
+          +'<option value="other"'+(parsed.code==='other'?' selected':'')+'>Other</option>'
+          +'</select>'
+          +(parsed.code==='other'?'<input type="text" value="'+(parsed.text||'').replace(/"/g,'&quot;')+'" placeholder="Reason…" onclick="event.stopPropagation()" onblur="saveOtherReason(\''+l.id+'\',this.value)" onkeydown="if(event.key===\'Enter\')this.blur()" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;font-family:inherit;width:90px">':'')
           +'</div>'
-        +'</td>'
-        +'<td onclick="event.stopPropagation()" style="min-width:150px">'
-          +'<input type="text" value="'+(l.next_action||'').replace(/"/g,'&quot;')+'" placeholder="e.g. Chase for floorplan"'
-          +' style="width:100%;border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-size:11px;font-family:inherit"'
-          +' onclick="event.stopPropagation()" onkeydown="if(event.key===\'Enter\')this.blur()" onblur="saveNextAction(\''+l.id+'\',this.value)">'
-        +'</td>';
+          +'</td>';
       }()):'')+
       '<td class="action-cell" onclick="event.stopPropagation()">'+
         (l.url?'<a href="'+l.url+'" target="_blank" style="color:var(--blue);font-size:11px;margin-right:4px" title="View listing">↗</a>':'')+
@@ -740,6 +840,38 @@ async function showMSOABoundary(msoaCode){
 function closeDetail(){
   var p=document.getElementById('dp');if(p)p.remove();
   if(_msoaLayer&&mapObj){mapObj.removeLayer(_msoaLayer);_msoaLayer=null;}
+}
+function buildEnquiryDetailBlock(l){
+  var id=l.id;
+  var box='background:#f5f4f0;border-radius:6px;padding:12px;margin-bottom:16px';
+  var row='display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid #e8e7e2';
+  var lbl='font-size:12px;color:#444;font-weight:600';
+  var inp='font-size:12px;padding:4px 7px;border:1px solid #ddd;border-radius:5px;font-family:inherit;width:120px';
+  var html='<div style="'+box+'">'
+    +'<div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#888;margin-bottom:8px">Floorplan chase</div>'
+    +'<div style="'+row+'"><span style="'+lbl+'">Emailed agent</span>'
+      +'<input type="checkbox" '+(l.emailed_agent?'checked':'')+' onchange="saveEmailedAgent(\''+id+'\',this.checked)"></div>'
+    +'<div style="'+row+'"><span style="'+lbl+'">Ceiling ≥3m confirmed</span>'
+      +'<input type="checkbox" '+(l.ceiling_ok?'checked':'')+' onchange="saveListingField(\''+id+'\',\'ceiling_ok\',this.checked)"></div>'
+    +'<div style="'+row+'"><span style="'+lbl+'">Best rent price</span>'
+      +'<input type="number" placeholder="£ p.a." value="'+(l.best_rent_price!=null?l.best_rent_price:'')+'" style="'+inp+'" onblur="saveListingField(\''+id+'\',\'best_rent_price\',this.value?parseFloat(this.value):null)" onkeydown="if(event.key===\'Enter\')this.blur()"></div>'
+    +'<div style="'+row+'"><span style="'+lbl+'">Time on market</span>'
+      +'<input type="text" placeholder="e.g. 6 months" value="'+(l.time_on_market||'').replace(/"/g,'&quot;')+'" style="'+inp+'" onblur="saveListingField(\''+id+'\',\'time_on_market\',this.value)" onkeydown="if(event.key===\'Enter\')this.blur()"></div>'
+    +'<div style="'+row+';border-bottom:none"><span style="'+lbl+'">Ready to let immediately</span>'
+      +'<input type="checkbox" '+(l.ready_to_let?'checked':'')+' onchange="saveListingField(\''+id+'\',\'ready_to_let\',this.checked)"></div>'
+    +'<div style="margin-top:10px">'
+    +(l.floorplan_url
+      ?'<a href="'+l.floorplan_url+'" target="_blank" style="display:inline-block;font-size:12px;color:#3B6D11;font-weight:600;margin-bottom:6px">✓ View floorplan ↗</a><br>'
+      :'')
+    +'<label style="font-size:11px;color:#666;display:block;margin-bottom:4px">'+(l.floorplan_url?'Replace floorplan':'Upload floorplan')+'</label>'
+    +'<input type="file" accept="image/*,.pdf" onchange="uploadFloorplan(\''+id+'\',this)" style="font-size:11px;width:100%">'
+    +'</div>'
+    +'<div style="margin-top:10px">'
+    +'<label style="font-size:11px;color:#666;display:block;margin-bottom:4px">Notes / comments</label>'
+    +'<textarea placeholder="Any other detail from the call…" style="width:100%;min-height:50px;font-size:12px;font-family:inherit;border:1px solid #ddd;border-radius:5px;padding:6px" onblur="saveListingField(\''+id+'\',\'notes\',this.value)">'+(l.notes||'').replace(/</g,'&lt;')+'</textarea>'
+    +'</div>'
+    +'</div>';
+  return html;
 }
 function showDetail(id){
   closeDetail();
@@ -791,6 +923,7 @@ function showDetail(id){
     +'</div>'
     +(l.agent?'<div style="font-size:12px;color:#666;margin-bottom:8px">Agent: <strong>'+l.agent+'</strong></div>':'')
     +(l.url?'<a href="'+l.url+'" target="_blank" style="display:inline-block;margin-bottom:16px;font-size:12px;color:#3B6D11;font-weight:600">View on Rightmove ↗</a><br>':'')
+    +(l.status==='enquiry'?buildEnquiryDetailBlock(l):'')
     +'<div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#888;margin-bottom:8px;margin-top:8px">Macro score</div>';
   if(l.macro!=null){
     inner+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
@@ -953,8 +1086,9 @@ function switchTab(t){
     el.classList.toggle('active',el.getAttribute('onclick')==="switchTab('"+t+"')");
   });
   var showActionCols=(t==='enquiry');
-  document.getElementById('th-lastact').style.display=showActionCols?'':'none';
-  document.getElementById('th-nextact').style.display=showActionCols?'':'none';
+  document.getElementById('th-emailed').style.display=showActionCols?'':'none';
+  document.getElementById('th-today').style.display=showActionCols?'':'none';
+  document.getElementById('th-todayact').style.display=showActionCols?'':'none';
   render();updateCounts();updateMap();
 }
 function setSourceFilter(s){
