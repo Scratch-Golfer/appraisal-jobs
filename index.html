@@ -245,7 +245,7 @@ function renderStageGridSummary(){
 
 <div class="bulkbar" id="bulkbar">
   <span id="bulk-label">0 selected</span>
-  <button class="bb success" onclick="bulkAction('accepted')">✓ Accept all → Pipeline</button>
+  <button class="bb success" onclick="bulkAction('floorplan_review')">✓ Pass all → Assess Floorplan</button>
   <button class="bb danger" onclick="bulkAction('rejected')">✗ Reject all</button>
   <button class="bb" onclick="scoreSelected()">⚡ Score selected</button>
   <button class="bb" onclick="clearSel()">Clear</button>
@@ -864,9 +864,9 @@ function render(){
           ?'<button class="act acc" onclick="action(\''+l.id+'\',\'enquiry\')" title="→ Enquiry">→</button>'+
             '<button class="act rej" onclick="action(\''+l.id+'\',\'rejected\')">✗</button>'
           :curTab==='enquiry'
-          ?'<button class="act acc" onclick="action(\''+l.id+'\',\'accepted\')" title="✓ Pipeline">✓</button>'+
+          ?'<button class="act acc" onclick="action(\''+l.id+'\',\'floorplan_review\')" title="Pass → Assess Floorplan">Pass</button>'+
             '<button class="act rst" onclick="action(\''+l.id+'\',\'inbox\')">↩</button>'+
-            '<button class="act rej" onclick="action(\''+l.id+'\',\'rejected\')">✗</button>'
+            '<button class="act rej" onclick="action(\''+l.id+'\',\'rejected\')" title="Reject">Reject</button>'
           :'<button class="act rst" onclick="action(\''+l.id+'\',\'inbox\')">↩</button>')+
       '</td></tr>';
   }).join('');
@@ -1075,7 +1075,7 @@ function showDetail(id){
   if(l.next_action)inner+='<div style="font-size:11px;color:#666;margin-bottom:16px">Next: <strong>'+l.next_action.replace(/</g,'&lt;')+'</strong></div>';
   inner+='<div style="display:flex;gap:8px;margin-top:8px">';
   if(l.status==='inbox')inner+='<button id="dp-enq" style="'+btnStyle+'background:#1C3A0E;color:white">\u2713 Pass \u2192 Stage 2</button>';
-  if(l.status==='enquiry')inner+='<button id="dp-acc" style="'+btnStyle+'background:#1C3A0E;color:white">✓ Pipeline</button>';
+  if(l.status==='enquiry')inner+='<button id="dp-acc" style="'+btnStyle+'background:#1C3A0E;color:white">\u2713 Pass \u2192 Stage 3</button>';
   inner+='<button id="dp-rej" style="'+btnStyle+'background:#fceaea;color:#8b2020;border:1px solid #f0c0c0">✗ Reject</button>';
   inner+='</div>';
   inner+='<div id="dp-minimap" style="height:180px;border-radius:6px;overflow:hidden;margin-top:12px;background:#eee"></div>';
@@ -1087,7 +1087,7 @@ function showDetail(id){
     if(!confirm('Can this property facilitate 1 or more golf bays?'))return;
     action(l.id,'enquiry');closeDetail();
   };
-  if(document.getElementById('dp-acc'))document.getElementById('dp-acc').onclick=function(){action(l.id,'accepted');closeDetail();};
+  if(document.getElementById('dp-acc'))document.getElementById('dp-acc').onclick=function(){action(l.id,'floorplan_review');closeDetail();};
   document.getElementById('dp-rej').onclick=function(){action(l.id,'rejected');closeDetail();};
   document.getElementById('dp-addaction').onclick=async function(){
     var inp=document.getElementById('dp-newaction');
@@ -1159,7 +1159,7 @@ async function action(id,ns){
       await db.from('listings').update({status:ns}).eq('id',l._dbId);
     }
     l.status=ns;l.selected=false;
-    toast(ns==='rejected'?'Rejected':ns==='inbox'?'Restored to inbox':'Moved');
+    toast(ns==='rejected'?'Rejected':ns==='inbox'?'Restored to inbox':ns==='floorplan_review'?'→ Sent to Assess Floorplan':'Moved');
   }
   render();updateCounts();updateMap();
 }
@@ -1174,8 +1174,11 @@ async function bulkAction(ns){
     }
     toast(failed?'Partial: '+(sel.length-failed)+' added, '+failed+' failed':'✓ '+sel.length+' added to Pipeline');
   } else {
-    sel.forEach(function(l){l.status=ns;l.selected=false;});
-    toast(sel.length+' rejected');
+    for(var j=0;j<sel.length;j++){
+      if(sel[j]._dbId)await db.from('listings').update({status:ns}).eq('id',sel[j]._dbId);
+      sel[j].status=ns;sel[j].selected=false;
+    }
+    toast(ns==='rejected'?sel.length+' rejected':sel.length+' moved to Assess Floorplan');
   }
   render();updateMap();
 }
