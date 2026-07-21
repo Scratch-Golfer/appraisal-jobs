@@ -246,11 +246,46 @@ input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--bl
       <div>
         <div style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:16px;margin-bottom:16px">
           <div style="font-size:11px;color:#999;font-weight:600;letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px">Floorplan</div>
+          <div class="pl-tb">
+            <button class="pb aa" id="s4-pb-cal">Set scale</button>
+            <span class="pi" id="s4-pb-slbl">no scale</span>
+            <div class="psep"></div>
+            <button class="pb ag" id="s4-pb-place">Place bay</button>
+            <button class="pb at" id="s4-pb-toilet">+ Toilet</button>
+            <button class="pb" id="s4-pb-flip" disabled>Flip</button>
+            <button class="pb" id="s4-pb-rst" disabled>Reset rotation</button>
+            <button class="pb ar" id="s4-pb-del" disabled>Delete</button>
+            <div class="psep"></div>
+            <span class="pi">angle</span><input type="number" id="s4-ang" step="1" placeholder="0" disabled><span class="pi">deg</span>
+            <div class="psep"></div>
+            <button class="pb" id="s4-pb-ori">New: portrait</button>
+            <button class="pb" id="s4-pb-undo">Undo</button>
+            <button class="pb" id="s4-pb-clear">Clear all</button>
+            <div class="psep"></div>
+            <button class="pb" id="s4-pb-zout">− Zoom</button>
+            <span class="pi" id="s4-zlbl">100%</span>
+            <button class="pb" id="s4-pb-zin">+ Zoom</button>
+            <button class="pb" id="s4-pb-zrst">Reset zoom</button>
+            <div class="psep"></div>
+            <span class="pi" id="s4-pb-blbl">0 bays</span>
+          </div>
           <div class="pl-cw" id="s4-pl-cw" style="min-height:200px">
             <canvas id="s4-pl-cv"></canvas>
             <div id="s4-pl-empty" style="display:none;color:#9b9a95;font-size:12.5px;padding:40px 0">No floorplan on file.</div>
+            <div id="s4-scdlg">
+              <h3>Set scale</h3>
+              <p>Real-world distance between the two points (metres)?</p>
+              <input type="number" id="s4-scinp" min="0.1" step="0.1" placeholder="e.g. 10">
+              <div class="scbtns"><button class="scok" id="s4-sc-ok">Confirm</button><button class="sccx" id="s4-sc-cx">Cancel</button></div>
+            </div>
           </div>
-          <div id="s4-pl-status" style="font-size:11px;color:#888;font-family:monospace;margin-top:6px"></div>
+          <div class="pl-st"><span id="s4-pl-status">No floorplan loaded</span><span>drag handle to rotate · shift = snap 5°</span></div>
+          <div class="bay-summary" id="s4-bay-summary" style="display:none"></div>
+        </div>
+        <div id="s4-cost-wrap" style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:14px 16px;margin-bottom:16px;display:none">
+          <div style="font-size:11px;color:#999;font-weight:600;letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px">Cost per bay</div>
+          <div id="s4-cpb" style="font-size:22px;font-weight:700;color:#1a1a18"></div>
+          <div id="s4-cpb-sub" style="font-size:11.5px;color:#999;margin-top:2px"></div>
         </div>
         <div id="s4-info" style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:12.5px;color:#444;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px 20px"></div>
         <div style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:16px;margin-bottom:16px">
@@ -408,9 +443,8 @@ async function s3Reject(){
   s3CloseListing();
 }
 
-// ── Stage 4: Scratch Check — full listing view with read-only floorplan ──
+// ── Stage 4: Scratch Check — full listing view with interactive floorplan (read-only, s4CurListing) ──
 var s4CurListing=null;
-var s4cv=document.getElementById('s4-pl-cv'),s4ctx=s4cv.getContext('2d'),s4pcw=document.getElementById('s4-pl-cw');
 function s4OpenListing(id){
   var l=listings.find(function(x){return x.id===id;});
   if(!l)return;
@@ -442,58 +476,22 @@ function s4OpenListing(id){
   initS4MiniMap(l);
   document.getElementById('s4-notes').value=l.notes||'';
   document.getElementById('s4-notes').onblur=function(){saveListingField(l.id,'notes',this.value);};
-  s4ctx.clearRect(0,0,s4cv.width,s4cv.height);
-  document.getElementById('s4-pl-status').textContent='';
+  s4PlReset();
   document.getElementById('s4-pl-empty').style.display='none';
   if(l.floorplan_url){
     if(/\.pdf(\?|$)/i.test(l.floorplan_url)){
       document.getElementById('s4-pl-status').textContent='Loading PDF…';
-      s3PdfFirstPageToImg(l.floorplan_url).then(function(img){s4DrawFloorplan(img,layout);})
+      s3PdfFirstPageToImg(l.floorplan_url).then(function(img){s4PlLoad(img);})
         .catch(function(err){document.getElementById('s4-pl-status').textContent='Could not load the floorplan PDF: '+err.message;});
     }else{
       var img=new Image();
       img.crossOrigin='anonymous';
-      img.onload=function(){s4DrawFloorplan(img,layout);};
+      img.onload=function(){s4PlLoad(img);};
       img.onerror=function(){document.getElementById('s4-pl-status').textContent='Could not load the floorplan image.';};
       img.src=l.floorplan_url;
     }
   }else{
     document.getElementById('s4-pl-empty').style.display='block';
-  }
-}
-function s4DrawFloorplan(imgEl,layout){
-  var MAX=8000,nw=imgEl.naturalWidth,nh=imgEl.naturalHeight;
-  if(nw>MAX){nh=Math.round(nh*MAX/nw);nw=MAX;}if(nh>MAX){nw=Math.round(nw*MAX/nh);nh=MAX;}
-  s4cv.width=nw;s4cv.height=nh;
-  var mxW=Math.max(300,s4pcw.clientWidth||700)-2,mxH=780,asp=nw/nh;
-  var dw=mxW,dh=dw/asp;if(dh>mxH){dh=mxH;dw=dh*asp;}
-  s4cv.style.width=Math.round(dw)+'px';s4cv.style.height=Math.round(dh)+'px';
-  s4ctx.clearRect(0,0,nw,nh);
-  s4ctx.drawImage(imgEl,0,0,nw,nh);
-  if(layout&&layout.bays&&layout.ppm){
-    var ppm=layout.ppm,L=Math.max(2,nw/500);
-    layout.bays.forEach(function(b,i){
-      var isBay=(b.type!=='toilet');
-      var w=ppm*(b.r?(isBay?S3_BD:S3_TD):(isBay?S3_BW:S3_TW));
-      var h=ppm*(b.r?(isBay?S3_BW:S3_TW):(isBay?S3_BD:S3_TD));
-      s4ctx.save();s4ctx.translate(b.cx,b.cy);s4ctx.rotate(b.a);
-      s4ctx.fillStyle=isBay?'rgba(99,153,34,.22)':'rgba(24,95,165,.18)';
-      s4ctx.fillRect(-w/2,-h/2,w,h);
-      s4ctx.strokeStyle=isBay?'#639922':'#185FA5';s4ctx.lineWidth=L*1.5;s4ctx.strokeRect(-w/2,-h/2,w,h);
-      if(isBay){
-        var bn=0;for(var j=0;j<i;j++)if(layout.bays[j].type!=='toilet')bn++;
-        var fs=Math.max(14,Math.min(w/4,h/3,60));
-        s4ctx.fillStyle='#27500A';s4ctx.font='600 '+fs+'px sans-serif';
-        s4ctx.textAlign='center';s4ctx.textBaseline='middle';s4ctx.fillText(bn+1,0,0);
-      }else{
-        var fs2=Math.max(10,Math.min(w*.6,h*.85,36));
-        s4ctx.font=fs2+'px sans-serif';s4ctx.textAlign='center';s4ctx.textBaseline='middle';s4ctx.fillText('\uD83D\uDEB9',0,0);
-      }
-      s4ctx.restore();
-    });
-    document.getElementById('s4-pl-status').textContent='Bay layout from Assess Floorplan, 1m='+ppm.toFixed(1)+'px';
-  }else{
-    document.getElementById('s4-pl-status').textContent='No bay layout recorded.';
   }
 }
 var _s4MiniMap=null;
@@ -535,7 +533,13 @@ function s4CloseListing(){
 }
 async function s4Pass(){
   if(!s4CurListing)return;
-  if(s4CurListing._dbId)await db.from('listings').update({status:'schedule_viewing'}).eq('id',s4CurListing._dbId);
+  var nb=s4BayCount();
+  if(s4ppm&&s4CurListing._dbId){
+    await db.from('listings').update({bay_layout:{bays:s4bays,ppm:s4ppm},expected_bays:nb||null,status:'schedule_viewing'}).eq('id',s4CurListing._dbId);
+    s4CurListing.bay_layout={bays:s4bays,ppm:s4ppm};s4CurListing.expected_bays=nb||null;
+  }else if(s4CurListing._dbId){
+    await db.from('listings').update({status:'schedule_viewing'}).eq('id',s4CurListing._dbId);
+  }
   s4CurListing.status='schedule_viewing';
   toast('✓ Passed → Schedule Viewing');
   s4CloseListing();
@@ -757,6 +761,216 @@ window.addEventListener('mouseup',function(e){
   s3plUI();s3mpd=null;s3cv.style.cursor='crosshair';s3draw();
 });
 s3cv.addEventListener('mouseleave',function(){s3mouse.inside=false;s3draw();});
+
+// ── Stage 4: Bay planner (Scratch Check) — same engine as Stage 3, s4-namespaced ──
+var s4cv=document.getElementById('s4-pl-cv'),s4ctx=s4cv.getContext('2d'),s4pcw=document.getElementById('s4-pl-cw');
+var S3_BW=5.0,S3_BD=6.5;   // bay metres
+var S3_TW=2.3,S3_TD=1.6;   // toilet metres
+var s4plImg=null,s4ppm=null,s4bays=[],s4sel=-1,s4defRot=false,s4plMode='normal',s4calPts=[];
+var s4mpd=null,s4mouse={x:0,y:0,inside:false};
+var s4nextType='bay';
+var s4zoom=1,s4baseDw=0,s4baseDh=0;
+
+function s4lw(){return Math.max(2,s4cv.width/500);}
+function s4dims(b){
+  if(b.type==='toilet')return{w:s4ppm*(b.r?S3_TD:S3_TW),h:s4ppm*(b.r?S3_TW:S3_TD)};
+  return{w:s4ppm*(b.r?S3_BD:S3_BW),h:s4ppm*(b.r?S3_BW:S3_BD)};
+}
+function s4hitB(px,py,b){var d=s4dims(b),dx=px-b.cx,dy=py-b.cy,c=Math.cos(-b.a),ss=Math.sin(-b.a);return Math.abs(dx*c-dy*ss)<=d.w/2&&Math.abs(dx*ss+dy*c)<=d.h/2;}
+function s4rhP(b){var h=s4dims(b).h,d=h/2+Math.max(s4lw()*12,s4cv.height*.04);return{x:b.cx+d*Math.sin(b.a),y:b.cy-d*Math.cos(b.a),r:Math.max(s4lw()*6,s4cv.width/130)};}
+function s4hitRH(px,py,b){var h=s4rhP(b);return Math.hypot(px-h.x,py-h.y)<=h.r*1.8;}
+function s4topB(x,y){for(var i=s4bays.length-1;i>=0;i--)if(s4hitB(x,y,s4bays[i]))return i;return -1;}
+function s4ndeg(a){var d=a*180/Math.PI;d=((d%360)+360)%360;return d>180?d-360:d;}
+function s4BayCount(){return s4bays.filter(function(b){return b.type!=='toilet';}).length;}
+function s4ToiCount(){return s4bays.filter(function(b){return b.type==='toilet';}).length;}
+
+function s4draw(){
+  s4ctx.clearRect(0,0,s4cv.width,s4cv.height);
+  if(!s4plImg)return;
+  s4ctx.drawImage(s4plImg,0,0,s4cv.width,s4cv.height);
+  if(s4calPts.length>0){
+    s4ctx.save();s4ctx.strokeStyle='#EF9F27';s4ctx.lineWidth=s4lw()*1.5;s4ctx.setLineDash([8,5]);
+    var p0=s4calPts[0],p1=s4calPts[1]||(s4plMode==='calib'?s4mouse:null);
+    if(p1){s4ctx.beginPath();s4ctx.moveTo(p0.x,p0.y);s4ctx.lineTo(p1.x,p1.y);s4ctx.stroke();}
+    s4calPts.forEach(function(p){s4ctx.beginPath();s4ctx.arc(p.x,p.y,s4lw()*4,0,Math.PI*2);s4ctx.fillStyle='#EF9F27';s4ctx.fill();});
+    s4ctx.setLineDash([]);s4ctx.restore();
+  }
+  s4bays.forEach(function(b,i){
+    var d=s4dims(b),s=(i===s4sel),L=s4lw(),isBay=(b.type!=='toilet');
+    s4ctx.save();s4ctx.translate(b.cx,b.cy);s4ctx.rotate(b.a);
+    s4ctx.fillStyle=s?(isBay?'rgba(192,221,151,.3)':'rgba(182,220,240,.35)'):(isBay?'rgba(99,153,34,.22)':'rgba(24,95,165,.18)');
+    s4ctx.fillRect(-d.w/2,-d.h/2,d.w,d.h);
+    s4ctx.strokeStyle=s?(isBay?'#C0DD97':'#7AC3E8'):(isBay?'#639922':'#185FA5');
+    s4ctx.lineWidth=s?L*2.5:L*1.5;s4ctx.strokeRect(-d.w/2,-d.h/2,d.w,d.h);
+    if(isBay){
+      var bn=0;for(var j=0;j<i;j++)if(s4bays[j].type!=='toilet')bn++;
+      var fs=Math.max(14,Math.min(d.w/4,d.h/3,60));
+      s4ctx.fillStyle=s?'#EAF3DE':'#27500A';s4ctx.font='600 '+fs+'px sans-serif';
+      s4ctx.textAlign='center';s4ctx.textBaseline='middle';s4ctx.fillText(bn+1,0,0);
+    }else{
+      var fs2=Math.max(10,Math.min(d.w*.6,d.h*.85,36));
+      s4ctx.font=fs2+'px sans-serif';s4ctx.textAlign='center';s4ctx.textBaseline='middle';s4ctx.fillText('\uD83D\uDEB9',0,0);
+    }
+    s4ctx.restore();
+    if(s){
+      var rh=s4rhP(b),tcx=b.cx+(d.h/2)*Math.sin(b.a),tcy=b.cy-(d.h/2)*Math.cos(b.a);
+      s4ctx.save();s4ctx.strokeStyle='rgba(192,221,151,.55)';s4ctx.lineWidth=s4lw();s4ctx.setLineDash([5,4]);
+      s4ctx.beginPath();s4ctx.moveTo(tcx,tcy);s4ctx.lineTo(rh.x,rh.y);s4ctx.stroke();s4ctx.setLineDash([]);
+      s4ctx.beginPath();s4ctx.arc(rh.x,rh.y,rh.r,0,Math.PI*2);
+      s4ctx.fillStyle=isBay?'#3B6D11':'#185FA5';s4ctx.fill();
+      s4ctx.strokeStyle=isBay?'#C0DD97':'#7AC3E8';s4ctx.lineWidth=s4lw()*1.5;s4ctx.stroke();
+      s4ctx.fillStyle='#EAF3DE';s4ctx.font='600 '+Math.max(10,rh.r*1.1)+'px sans-serif';
+      s4ctx.textAlign='center';s4ctx.textBaseline='middle';s4ctx.fillText('\u21bb',rh.x,rh.y+rh.r*.05);
+      s4ctx.restore();
+    }
+  });
+  if(s4plMode==='normal'&&s4ppm&&s4mouse.inside&&s4topB(s4mouse.x,s4mouse.y)===-1&&!(s4sel!==-1&&s4hitRH(s4mouse.x,s4mouse.y,s4bays[s4sel]))){
+    var gw,gh;
+    if(s4nextType==='toilet'){gw=s4ppm*(s4defRot?S3_TD:S3_TW);gh=s4ppm*(s4defRot?S3_TW:S3_TD);}
+    else{gw=s4ppm*(s4defRot?S3_BD:S3_BW);gh=s4ppm*(s4defRot?S3_BW:S3_BD);}
+    s4ctx.save();
+    s4ctx.fillStyle=s4nextType==='toilet'?'rgba(24,95,165,.1)':'rgba(99,153,34,.1)';
+    s4ctx.fillRect(s4mouse.x-gw/2,s4mouse.y-gh/2,gw,gh);
+    s4ctx.strokeStyle=s4nextType==='toilet'?'rgba(24,95,165,.45)':'rgba(99,153,34,.45)';
+    s4ctx.lineWidth=s4lw();s4ctx.setLineDash([8,5]);
+    s4ctx.strokeRect(s4mouse.x-gw/2,s4mouse.y-gh/2,gw,gh);s4ctx.setLineDash([]);s4ctx.restore();
+  }
+}
+
+function s4plUI(){
+  var nb=s4BayCount(),nt=s4ToiCount(),s=s4sel!==-1&&s4sel<s4bays.length;
+  document.getElementById('s4-pb-blbl').textContent=nb+(nb===1?' bay':' bays')+(nt>0?' \u00b7 '+nt+(nt===1?' toilet':' toilets'):'');
+  document.getElementById('s4-pb-flip').disabled=!s;document.getElementById('s4-pb-rst').disabled=!s;document.getElementById('s4-pb-del').disabled=!s;
+  document.getElementById('s4-ang').disabled=!s;document.getElementById('s4-ang').value=s?Math.round(s4ndeg(s4bays[s4sel].a)):'';
+  document.getElementById('s4-pb-cal').className='pb'+(s4plMode==='calib'?' aa':'');
+  document.getElementById('s4-pb-place').className='pb'+(s4plMode==='normal'&&s4nextType==='bay'?' ag':'');
+  document.getElementById('s4-pb-toilet').className='pb at'+(s4plMode==='normal'&&s4nextType==='toilet'?' sel':'');
+  var bs=document.getElementById('s4-bay-summary');
+  if(nb>0||nt>0){
+    bs.style.display='flex';
+    bs.innerHTML=(nb>0?'<span class="bay-chip green">'+nb+(nb===1?' bay':' bays')+'</span>':'')
+               +(nt>0?'<span class="bay-chip blue">'+nt+(nt===1?' toilet':' toilets')+'</span>':'');
+  }else{bs.style.display='none';}
+  s4UpdateCPB(nb);
+}
+function s4UpdateCPB(nb){
+  var wrap=document.getElementById('s4-cost-wrap');
+  var rent=s4CurListing?(s4CurListing.best_rent_price||s4CurListing.price):null;
+  if(nb>0&&rent){
+    wrap.style.display='block';
+    document.getElementById('s4-cpb').textContent='£'+Math.round(rent/nb).toLocaleString('en-GB')+' p.a.';
+    document.getElementById('s4-cpb-sub').textContent='£'+Number(rent).toLocaleString('en-GB')+' rent \u00f7 '+nb+' '+(nb===1?'bay':'bays');
+  }else{
+    wrap.style.display='none';
+  }
+}
+
+function s4PlReset(){
+  s4plImg=null;s4ppm=null;s4bays=[];s4sel=-1;s4defRot=false;s4plMode='normal';s4nextType='bay';s4calPts=[];s4mpd=null;
+  s4ctx.clearRect(0,0,s4cv.width,s4cv.height);
+  document.getElementById('s4-pb-slbl').textContent='no scale';document.getElementById('s4-pb-blbl').textContent='0 bays';
+  document.getElementById('s4-pl-stl').textContent='Set scale first, then click to place bays';
+  document.getElementById('s4-scdlg').style.display='none';document.getElementById('s4-bay-summary').style.display='none';
+  document.getElementById('s4-cost-wrap').style.display='none';
+  s4zoom=1;s4baseDw=0;s4baseDh=0;document.getElementById('s4-zlbl').textContent='100%';
+}
+
+function s4PlLoad(imgEl){
+  s4plImg=imgEl;
+  var MAX=8000,nw=imgEl.naturalWidth,nh=imgEl.naturalHeight;
+  if(nw>MAX){nh=Math.round(nh*MAX/nw);nw=MAX;}if(nh>MAX){nw=Math.round(nw*MAX/nh);nh=MAX;}
+  s4cv.width=nw;s4cv.height=nh;
+  var mxW=Math.max(300,s4pcw.clientWidth||700)-2,mxH=780,asp=nw/nh;
+  var dw=mxW,dh=dw/asp;if(dh>mxH){dh=mxH;dw=dh*asp;}
+  s4baseDw=dw;s4baseDh=dh;s4zoom=1;
+  s4cv.style.width=Math.round(dw)+'px';s4cv.style.height=Math.round(dh)+'px';
+  document.getElementById('s4-zlbl').textContent='100%';
+  var layout=s4CurListing&&s4CurListing.bay_layout?s4CurListing.bay_layout:null;
+  if(layout&&layout.bays&&Array.isArray(layout.bays)&&layout.bays.length>0){
+    s4bays=layout.bays;
+    if(layout.ppm&&layout.ppm>0){s4ppm=layout.ppm;document.getElementById('s4-pb-slbl').textContent='1m='+s4ppm.toFixed(1)+'px';}
+    document.getElementById('s4-pl-stl').textContent=s4ppm?'Bays and scale restored.':'Bays restored. Set scale to continue.';
+  }else{
+    document.getElementById('s4-pl-stl').textContent='Loaded. Click Set scale then place bays.';
+  }
+  s4plUI();s4draw();
+}
+
+document.getElementById('s4-pb-cal').addEventListener('click',function(){
+  if(!s4plImg)return;
+  s4plMode='calib';s4calPts=[];s4sel=-1;s4plUI();
+  document.getElementById('s4-pl-stl').textContent='Click two points with a known distance.';s4draw();
+});
+document.getElementById('s4-sc-ok').addEventListener('click',function(){
+  var d=parseFloat(document.getElementById('s4-scinp').value);if(!d||d<=0)return;
+  if(s4calPts.length<2){alert('Click two points on the plan first.');return;}
+  var dx=s4calPts[1].x-s4calPts[0].x,dy=s4calPts[1].y-s4calPts[0].y;
+  s4ppm=Math.hypot(dx,dy)/d;
+  document.getElementById('s4-pb-slbl').textContent='1m='+s4ppm.toFixed(1)+'px';
+  document.getElementById('s4-scdlg').style.display='none';s4calPts=[];s4plMode='normal';
+  document.getElementById('s4-pl-stl').textContent='Scale set. Click to place bays.';s4plUI();s4draw();
+});
+document.getElementById('s4-sc-cx').addEventListener('click',function(){document.getElementById('s4-scdlg').style.display='none';s4calPts=[];s4plMode='normal';s4plUI();s4draw();});
+document.getElementById('s4-pb-place').addEventListener('click',function(){s4nextType='bay';s4plMode='normal';s4plUI();s4draw();});
+document.getElementById('s4-pb-toilet').addEventListener('click',function(){s4nextType='toilet';s4plMode='normal';s4plUI();s4draw();});
+document.getElementById('s4-pb-flip').addEventListener('click',function(){if(s4sel!==-1){s4bays[s4sel].r=!s4bays[s4sel].r;s4plUI();s4draw();}});
+document.getElementById('s4-pb-rst').addEventListener('click',function(){if(s4sel!==-1){s4bays[s4sel].a=0;s4plUI();s4draw();}});
+document.getElementById('s4-pb-del').addEventListener('click',function(){if(s4sel!==-1){s4bays.splice(s4sel,1);s4sel=-1;s4plUI();s4draw();}});
+document.getElementById('s4-pb-ori').addEventListener('click',function(){s4defRot=!s4defRot;this.textContent='New: '+(s4defRot?'landscape':'portrait');s4draw();});
+document.getElementById('s4-pb-undo').addEventListener('click',function(){if(s4bays.length){s4bays.pop();if(s4sel>=s4bays.length)s4sel=-1;s4plUI();s4draw();}});
+document.getElementById('s4-pb-clear').addEventListener('click',function(){s4bays=[];s4sel=-1;s4plUI();s4draw();});
+function s4ApplyZoom(){
+  if(!s4baseDw)return;
+  s4zoom=Math.max(0.25,Math.min(4,s4zoom));
+  s4cv.style.width=Math.round(s4baseDw*s4zoom)+'px';
+  s4cv.style.height=Math.round(s4baseDh*s4zoom)+'px';
+  document.getElementById('s4-zlbl').textContent=Math.round(s4zoom*100)+'%';
+}
+document.getElementById('s4-pb-zin').addEventListener('click',function(){s4zoom*=1.25;s4ApplyZoom();});
+document.getElementById('s4-pb-zout').addEventListener('click',function(){s4zoom/=1.25;s4ApplyZoom();});
+document.getElementById('s4-pb-zrst').addEventListener('click',function(){s4zoom=1;s4ApplyZoom();});
+document.getElementById('s4-ang').addEventListener('change',function(){if(s4sel===-1)return;var d=parseFloat(this.value);if(!isNaN(d)){s4bays[s4sel].a=d*Math.PI/180;s4draw();}});
+
+function s4ec(e){var r=s4cv.getBoundingClientRect();return{x:(e.clientX-r.left)*(s4cv.width/r.width),y:(e.clientY-r.top)*(s4cv.height/r.height)};}
+s4cv.addEventListener('mousedown',function(e){
+  if(!s4plImg)return;var p=s4ec(e),type='place',bi=-1;
+  if(s4plMode==='calib')type='calib';
+  else if(s4sel!==-1&&s4hitRH(p.x,p.y,s4bays[s4sel])){type='rot';bi=s4sel;}
+  else{bi=s4topB(p.x,p.y);type=bi!==-1?'move':'place';}
+  s4mpd={cx:e.clientX,cy:e.clientY,sx:p.x,sy:p.y,type:type,bi:bi,ox:bi!==-1?s4bays[bi].cx:0,oy:bi!==-1?s4bays[bi].cy:0,oa:bi!==-1?s4bays[bi].a:0,sma:bi!==-1?Math.atan2(p.y-s4bays[bi].cy,p.x-s4bays[bi].cx):0,moved:false};
+  e.preventDefault();
+});
+window.addEventListener('mousemove',function(e){
+  if(document.getElementById('overlay-view-4').style.display==='none')return;
+  var r=s4cv.getBoundingClientRect();
+  s4mouse.inside=e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom;
+  var c=s4ec(e);s4mouse.x=c.x;s4mouse.y=c.y;
+  if(s4mpd){
+    if(!s4mpd.moved&&Math.hypot(e.clientX-s4mpd.cx,e.clientY-s4mpd.cy)>4)s4mpd.moved=true;
+    if(s4mpd.moved){
+      if(s4mpd.type==='move'&&s4mpd.bi!==-1){s4bays[s4mpd.bi].cx=s4mpd.ox+(c.x-s4mpd.sx);s4bays[s4mpd.bi].cy=s4mpd.oy+(c.y-s4mpd.sy);s4cv.style.cursor='grabbing';}
+      else if(s4mpd.type==='rot'&&s4mpd.bi!==-1){var na=s4mpd.oa+(Math.atan2(c.y-s4bays[s4mpd.bi].cy,c.x-s4bays[s4mpd.bi].cx)-s4mpd.sma);if(e.shiftKey){var sn=5*Math.PI/180;na=Math.round(na/sn)*sn;}s4bays[s4mpd.bi].a=na;document.getElementById('s4-ang').value=Math.round(s4ndeg(s4bays[s4mpd.bi].a));s4cv.style.cursor='grabbing';}
+    }
+  }else{
+    if(s4sel!==-1&&s4sel<s4bays.length&&s4hitRH(s4mouse.x,s4mouse.y,s4bays[s4sel]))s4cv.style.cursor='grab';
+    else if(s4topB(s4mouse.x,s4mouse.y)!==-1)s4cv.style.cursor='grab';
+    else s4cv.style.cursor='crosshair';
+  }
+  s4draw();
+});
+window.addEventListener('mouseup',function(e){
+  if(!s4mpd)return;var c=s4ec(e),onC=(e.target===s4cv);
+  if(s4mpd.type==='calib'&&s4mouse.inside){
+    s4calPts.push({x:s4mpd.sx,y:s4mpd.sy});
+    if(s4calPts.length===2){document.getElementById('s4-scinp').value='';document.getElementById('s4-scdlg').style.display='block';setTimeout(function(){document.getElementById('s4-scinp').focus();},50);document.getElementById('s4-pl-stl').textContent='Enter the distance between the two points.';}
+    else{document.getElementById('s4-pl-stl').textContent='Good - now click a second point.';}
+  }else if(!s4mpd.moved&&onC){
+    if(s4mpd.type==='move'&&s4mpd.bi!==-1)s4sel=s4sel===s4mpd.bi?-1:s4mpd.bi;
+    else if(s4mpd.type==='place'){s4sel=-1;if(s4ppm)s4bays.push({type:s4nextType,cx:c.x,cy:c.y,r:s4defRot,a:0});else document.getElementById('s4-pl-stl').textContent='Set scale first.';}
+  }
+  s4plUI();s4mpd=null;s4cv.style.cursor='crosshair';s4draw();
+});
+s4cv.addEventListener('mouseleave',function(){s4mouse.inside=false;s4draw();});
 </script>
 
 <div class="topbar">
@@ -1067,31 +1281,10 @@ function renderCallModalInfo(l){
     '</div>';
   var linkRow=l.url?'<a href="'+l.url+'" target="_blank" style="display:inline-block;font-size:11px;color:var(--blue);font-weight:600;margin-bottom:10px">View listing ↗</a>':'';
   var mapDiv='<div id="call-modal-minimap" style="height:260px;border-radius:6px;overflow:hidden;margin-bottom:10px;background:#eee"></div>';
-  var propNotesArea='<div style="margin-bottom:10px">'+
-    '<div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px">Property notes</div>'+
-    '<textarea id="call-modal-propnotes-'+l.id+'" placeholder="Property notes…" style="width:100%;min-height:50px;font-size:12px;font-family:inherit;border:1px solid var(--border);border-radius:6px;padding:6px;box-sizing:border-box" onblur="saveListingField(\''+l.id+'\',\'notes\',this.value)">'+(l.notes||'').replace(/</g,'&lt;')+'</textarea>'+
+  var notesArea='<div style="margin-bottom:14px">'+
+    '<textarea placeholder="Any other detail from the call…" style="width:100%;min-height:50px;font-size:12px;font-family:inherit;border:1px solid var(--border);border-radius:6px;padding:6px;box-sizing:border-box" onblur="saveListingField(\''+l.id+'\',\'notes\',this.value)">'+(l.notes||'').replace(/</g,'&lt;')+'</textarea>'+
     '</div>';
-  var callNoteArea='<div style="margin-bottom:14px">'+
-    '<div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px">Add a note about this call</div>'+
-    '<textarea id="call-modal-newnote-'+l.id+'" placeholder="What happened on this call…" style="width:100%;min-height:40px;font-size:12px;font-family:inherit;border:1px solid var(--border);border-radius:6px;padding:6px;box-sizing:border-box"></textarea>'+
-    '<button onclick="appendCallNote(\''+l.id+'\')" style="margin-top:6px;padding:6px 14px;font-size:12px;font-weight:600;background:#1C3A0E;color:#fff;border:none;border-radius:6px;cursor:pointer">Save note</button>'+
-    '</div>';
-  return scores+linkRow+mapDiv+propNotesArea+callNoteArea;
-}
-
-async function appendCallNote(id){
-  var input=document.getElementById('call-modal-newnote-'+id);
-  if(!input)return;
-  var text=(input.value||'').trim();
-  if(!text)return;
-  var l=listings.find(function(x){return x.id===id;});
-  if(!l)return;
-  var stamp=new Date().toLocaleString();
-  var updated=(l.notes?l.notes+'\n':'')+'['+stamp+'] '+text;
-  await saveListingField(id,'notes',updated);
-  input.value='';
-  var propEl=document.getElementById('call-modal-propnotes-'+id);
-  if(propEl)propEl.value=updated;
+  return scores+linkRow+mapDiv+notesArea;
 }
 
 function renderCallModalLastNote(l){
