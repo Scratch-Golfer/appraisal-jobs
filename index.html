@@ -1011,14 +1011,21 @@ function modalSaveOtherReason(id,val){
   logTodayAction(l,'Other: '+trimmed).then(function(){refreshCallUI(id);});
 }
 
-function placeCall(id,phone){
+async function placeCall(id,phone){
   if(!twilioDevice){toast('Phone system not ready — refresh and try again');return;}
   phone=normalizePhoneNumber(phone);
   if(!phone){toast('Invalid phone number');return;}
   callStates[id]={mode:'calling'};
   refreshCallUI(id);
   activeCallListingId=id;
-  activeCall=twilioDevice.connect({params:{To:phone,listingId:id,staffIdentity:staffIdentity||''}});
+  try{
+    activeCall=await twilioDevice.connect({params:{To:phone,listingId:id,staffIdentity:staffIdentity||''}});
+  }catch(err){
+    console.error('Device.connect failed:',err);
+    toast('Call failed: '+(err.message||'unknown error'));
+    endCallUI(id);
+    return;
+  }
   activeCall.on('accept',function(){
     callStates[id]={mode:'connected',seconds:0};
     refreshCallUI(id);
