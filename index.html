@@ -1149,6 +1149,7 @@ async function loadListings(){
       action_history:(Array.isArray(r.action_history)?r.action_history:[]),
       next_action:r.next_action||'',
       emailed_agent:!!r.emailed_agent,
+      agent_phone:r.agent_phone||'',
       ceiling_ok:!!r.ceiling_ok,
       floorplan_url:r.floorplan_url||'',
       best_rent_price:r.best_rent_price,
