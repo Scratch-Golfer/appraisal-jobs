@@ -182,10 +182,7 @@ input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--bl
   <div style="padding-top:100px"><div style="font-size:13.5px;color:#1a1a18;margin-bottom:4px;font-weight:600">Coming soon</div>Built next.</div>
 </div>
 <div id="overlay-view-3" style="display:none;position:fixed;top:44px;left:0;right:0;bottom:0;background:#f7f6f3;z-index:900;overflow-y:auto;padding:24px">
-  <div id="s3-list-mode">
-    <div id="s3-list" style="display:flex;flex-direction:column;gap:1px;background:#e8e7e2;border:1px solid #e8e7e2;border-radius:12px;overflow:hidden;max-width:900px"></div>
-  </div>
-  <div id="s3-planner-mode" style="display:none;max-width:900px">
+  <div id="s3-planner-mode" style="max-width:900px">
     <button onclick="s3CloseListing()" style="padding:6px 12px;font-size:12px;border:1px solid #ddd;border-radius:6px;background:#fff;cursor:pointer;margin-bottom:14px">← Back to list</button>
     <h2 id="s3-addr" style="font-size:16px;margin:0 0 4px"></h2>
     <div id="s3-sub" style="color:#6b6a65;font-size:12.5px;margin-bottom:16px"></div>
@@ -235,12 +232,11 @@ input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--bl
 function switchStageView(view){
   document.querySelectorAll(".sitenav a").forEach(function(a){ a.classList.toggle("active", a.dataset.view === view); });
   document.getElementById("overlay-home").style.display = view === "home" ? "block" : "none";
-  document.getElementById("overlay-view-3").style.display = view === "3" ? "block" : "none";
   document.getElementById("overlay-placeholder").style.display = (view !== "home" && view !== "1" && view !== "2" && view !== "3") ? "block" : "none";
   if (view === "home") renderStageGridSummary();
   if (view === "1") switchTab("inbox");
   if (view === "2") switchTab("enquiry");
-  if (view === "3") s3Render();
+  if (view === "3") switchTab("floorplan_review");
 }
 function renderStageGridSummary(){
   var meta = [
@@ -270,26 +266,13 @@ function renderStageGridSummary(){
 </script>
 
 <script>
-// ── Stage 3: Assess Floorplan — list ──────────────────────────────────────
+// ── Stage 3: Assess Floorplan — planner (opens on top of the shared table) ──
 var s3CurListing=null;
-function s3Render(){
-  var rows=listings.filter(function(l){return l.status==='floorplan_review';});
-  var el=document.getElementById('s3-list');
-  if(!rows.length){el.innerHTML='<div style="padding:40px;text-align:center;color:#9b9a95;background:#fff">Nothing waiting on floorplan assessment.</div>';return;}
-  el.innerHTML=rows.map(function(l){
-    return '<div style="background:#fff;display:flex;align-items:center;gap:14px;padding:14px 20px;cursor:pointer" onclick="s3OpenListing(\''+l.id+'\')">'
-      +'<div style="flex:1"><div style="font-weight:600;font-size:14px">'+(l.addr||'—')+'</div>'
-      +'<div style="color:#6b6a65;font-size:12px;margin-top:2px">'+(l.best_rent_price?'£'+Number(l.best_rent_price).toLocaleString()+' p.a.':'Rent not set')+(l.size?' · '+l.size+' sqft':'')+'</div></div>'
-      +(l.floorplan_url?'<span style="font-size:11px;color:#3B6D11;font-weight:600">Floorplan ✓</span>':'<span style="font-size:11px;color:#A32D2D">No floorplan</span>')
-      +'</div>';
-  }).join('');
-}
 function s3OpenListing(id){
   var l=listings.find(function(x){return x.id===id;});
   if(!l)return;
   s3CurListing=l;
-  document.getElementById('s3-list-mode').style.display='none';
-  document.getElementById('s3-planner-mode').style.display='block';
+  document.getElementById('overlay-view-3').style.display='block';
   document.getElementById('s3-addr').textContent=l.addr||'—';
   document.getElementById('s3-sub').textContent=(l.best_rent_price?'£'+Number(l.best_rent_price).toLocaleString()+' p.a.':'Rent not set')+(l.size?' · '+l.size+' sqft':'');
   s3PlReset();
@@ -305,9 +288,8 @@ function s3OpenListing(id){
 }
 function s3CloseListing(){
   s3CurListing=null;
-  document.getElementById('s3-planner-mode').style.display='none';
-  document.getElementById('s3-list-mode').style.display='block';
-  s3Render();
+  document.getElementById('overlay-view-3').style.display='none';
+  render();
 }
 async function s3Pass(){
   if(!s3CurListing)return;
@@ -1207,6 +1189,10 @@ function render(){
           ?'<button class="act acc" onclick="action(\''+l.id+'\',\'floorplan_review\')" title="Pass → Assess Floorplan">Pass</button>'+
             '<button class="act rst" onclick="action(\''+l.id+'\',\'inbox\')">↩</button>'+
             '<button class="act rej" onclick="action(\''+l.id+'\',\'rejected\')" title="Reject">Reject</button>'
+          :curTab==='floorplan_review'
+          ?'<button class="act acc" onclick="s3OpenListing(\''+l.id+'\')" title="Open planner">Open</button>'+
+            '<button class="act rst" onclick="action(\''+l.id+'\',\'enquiry\')">↩</button>'+
+            '<button class="act rej" onclick="action(\''+l.id+'\',\'rejected\')" title="Reject">Reject</button>'
           :'<button class="act rst" onclick="action(\''+l.id+'\',\'inbox\')">↩</button>')+
       '</td></tr>';
   }).join('');
@@ -1450,10 +1436,11 @@ function showDetail(id){
 
 function rowClick(e,id){
   if(e.target.tagName==='INPUT'||e.target.tagName==='BUTTON'||e.target.tagName==='A')return;
+  var l=listings.find(function(x){return x.id===id;});
+  if(l&&l.status==='floorplan_review'){s3OpenListing(id);return;}
   document.querySelectorAll('#tbody tr').forEach(function(r){r.classList.remove('highlighted');});
   showDetail(id);
   var tr=document.getElementById('tr-'+id);if(tr)tr.classList.add('highlighted');
-  var l=listings.find(function(x){return x.id===id;});
   if(l&&l.lat&&l.lng&&mapObj&&(viewMode==='split'||viewMode==='map')){
     mapObj.setView([l.lat,l.lng],15);
   }
