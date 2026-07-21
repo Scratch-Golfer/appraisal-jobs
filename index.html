@@ -890,9 +890,18 @@ function refreshCallUI(id){
   var l=listings.find(function(x){return x.id===id;});
   if(rowEl&&l)rowEl.innerHTML=renderCallWidget(l);
   if(currentCallModalId===id){
-    var cardEl=document.getElementById('call-modal-card');
-    if(cardEl&&l)cardEl.innerHTML=renderCallModalBody(l);
+    var statusEl=document.getElementById('call-modal-status');
+    if(statusEl&&l)statusEl.innerHTML=renderCallModalStatus(l);
   }
+}
+
+function refreshCallModalLog(id){
+  if(currentCallModalId!==id)return;
+  var l=listings.find(function(x){return x.id===id;});
+  var el=document.getElementById('call-modal-log');
+  if(el&&l)el.innerHTML=renderCallModalLog(l);
+  var noteEl=document.getElementById('call-modal-lastnote');
+  if(noteEl&&l)noteEl.innerHTML=renderCallModalLastNote(l);
 }
 
 // POPUP — opens on icon click. Auto-dials on first open if a number is already saved;
@@ -911,62 +920,112 @@ function openCallModal(id){
   overlay.onclick=function(e){if(e.target===overlay)closeCallModal();};
   var card=document.createElement('div');
   card.id='call-modal-card';
-  card.style.cssText='background:#fff;border-radius:10px;padding:20px;width:360px;max-width:90vw;box-shadow:0 8px 30px rgba(0,0,0,.25);font-family:inherit';
-  card.innerHTML=renderCallModalBody(l);
+  card.style.cssText='background:#fff;border-radius:10px;padding:20px;width:380px;max-width:90vw;max-height:85vh;overflow-y:auto;box-shadow:0 8px 30px rgba(0,0,0,.25);font-family:inherit';
+  card.innerHTML=renderCallModalHeader(l)
+    +'<div id="call-modal-status">'+renderCallModalStatus(l)+'</div>'
+    +renderCallModalInfo(l)
+    +'<div id="call-modal-lastnote">'+renderCallModalLastNote(l)+'</div>'
+    +'<div id="call-modal-log">'+renderCallModalLog(l)+'</div>';
   overlay.appendChild(card);
   document.body.appendChild(overlay);
+
+  initCallModalMiniMap(l);
 
   if(isFirstOpen&&l.agent_phone){
     placeCall(id,l.agent_phone);
   }
 }
 
+var _callModalMiniMap=null;
 function closeCallModal(silent){
   var el=document.getElementById('call-modal-overlay');
   if(el)el.remove();
+  if(_callModalMiniMap){_callModalMiniMap.remove();_callModalMiniMap=null;}
   if(!silent)currentCallModalId=null;
 }
 
-function renderCallModalBody(l){
-  var state=callStates[l.id]||{mode:'idle'};
-  var phone=l.agent_phone||'';
+async function initCallModalMiniMap(l){
+  var el=document.getElementById('call-modal-minimap');
+  if(!el)return;
+  if(_callModalMiniMap){_callModalMiniMap.remove();_callModalMiniMap=null;}
+  var lat=l.lat,lng=l.lng;
+  if(!lat||!lng){
+    try{
+      var gR=await fetch('https://maps.googleapis.com/maps/api/geocode/json?address='+encodeURIComponent((l.postcode||l.fullAddr||l.addr||'')+', UK')+'&region=gb&key='+GK);
+      var gD=await gR.json();
+      if(gD.status==='OK'&&gD.results.length){lat=gD.results[0].geometry.location.lat;lng=gD.results[0].geometry.location.lng;l.lat=lat;l.lng=lng;}
+    }catch(e){}
+  }
+  if(!document.getElementById('call-modal-minimap'))return; // modal closed while geocoding
+  if(!lat||!lng){el.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#aaa;font-size:11px">Location unavailable</div>';return;}
+  _callModalMiniMap=L.map('call-modal-minimap',{zoomControl:false,attributionControl:false}).setView([lat,lng],15);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:19}).addTo(_callModalMiniMap);
+  L.marker([lat,lng]).addTo(_callModalMiniMap);
+  setTimeout(function(){if(_callModalMiniMap)_callModalMiniMap.invalidateSize();},100);
+}
 
-  var header='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">'+
+function renderCallModalHeader(l){
+  var phone=l.agent_phone||'';
+  return '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">'+
       '<div><div style="font-weight:600;font-size:14px">'+escapeHtmlLocal(l.addr||l.fullAddr||'Listing')+'</div>'+
       '<div style="font-size:12px;color:var(--text2);margin-top:2px">'+escapeHtmlLocal(l.agent||'')+(phone?' · '+escapeHtmlLocal(phone):'')+'</div></div>'+
       '<button onclick="closeCallModal()" style="border:none;background:none;cursor:pointer;font-size:15px;color:var(--text2);padding:0 0 0 8px" title="Close">✗</button>'+
     '</div>';
+}
 
-  var statusBlock;
+// Live status area only — re-rendered every second during a call without touching the map/notes below
+function renderCallModalStatus(l){
+  var state=callStates[l.id]||{mode:'idle'};
+  var phone=l.agent_phone||'';
   if(state.mode==='calling'){
-    statusBlock='<div style="text-align:center;padding:14px 0;margin-bottom:14px;background:var(--bg);border-radius:8px">'+
+    return '<div style="text-align:center;padding:14px 0;margin-bottom:14px;background:var(--bg);border-radius:8px">'+
       '<div style="font-size:13px;color:var(--amber);font-weight:600;margin-bottom:10px">📞 Calling…</div>'+
       '<button onclick="hangupCall(\''+l.id+'\')" style="padding:7px 18px;font-size:12px;font-weight:600;background:#fceaea;color:#8b2020;border:1px solid #f0c0c0;border-radius:6px;cursor:pointer">Cancel</button>'+
       '</div>';
-  }else if(state.mode==='connected'){
-    statusBlock='<div style="text-align:center;padding:14px 0;margin-bottom:14px;background:var(--bg);border-radius:8px">'+
+  }
+  if(state.mode==='connected'){
+    return '<div style="text-align:center;padding:14px 0;margin-bottom:14px;background:var(--bg);border-radius:8px">'+
       '<div style="font-size:20px;color:var(--green);font-weight:700;margin-bottom:10px">'+formatCallDuration(state.seconds||0)+'</div>'+
       '<button onclick="hangupCall(\''+l.id+'\')" style="padding:7px 18px;font-size:12px;font-weight:600;background:#8b2020;color:#fff;border:none;border-radius:6px;cursor:pointer">Hang Up</button>'+
       '</div>';
-  }else if(phone){
-    statusBlock='<div style="margin-bottom:14px">'+
+  }
+  if(phone){
+    return '<div style="margin-bottom:14px">'+
       '<button onclick="placeCall(\''+l.id+'\',\''+escapeHtmlLocal(phone).replace(/'/g,"\\'")+'\')" style="width:100%;padding:9px;font-size:13px;font-weight:600;background:#1C3A0E;color:#fff;border:none;border-radius:6px;cursor:pointer">📞 Call '+escapeHtmlLocal(phone)+'</button>'+
       '</div>';
-  }else{
-    statusBlock='<div style="margin-bottom:14px">'+
-      '<input type="text" id="modal-callinput-'+l.id+'" placeholder="Agent phone number…" style="width:100%;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;margin-bottom:8px;box-sizing:border-box">'+
-      '<button onclick="modalSaveAgentPhoneAndCall(\''+l.id+'\')" style="width:100%;padding:8px;font-size:13px;font-weight:600;background:#1C3A0E;color:#fff;border:none;border-radius:6px;cursor:pointer">Save &amp; Call</button>'+
-      '</div>';
   }
+  return '<div style="margin-bottom:14px">'+
+    '<input type="text" id="modal-callinput-'+l.id+'" placeholder="Agent phone number…" style="width:100%;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;margin-bottom:8px;box-sizing:border-box">'+
+    '<button onclick="modalSaveAgentPhoneAndCall(\''+l.id+'\')" style="width:100%;padding:8px;font-size:13px;font-weight:600;background:#1C3A0E;color:#fff;border:none;border-radius:6px;cursor:pointer">Save &amp; Call</button>'+
+    '</div>';
+}
 
+// Static property info — built once per open, untouched by per-second status refreshes
+function renderCallModalInfo(l){
+  var scores='<div style="display:flex;gap:6px;margin-bottom:10px">'+
+    '<span class="sp '+scoreClass(l.macro)+'" style="font-size:11px;padding:3px 8px;border-radius:5px" title="Macro score">Macro '+scoreLabel(l.macro)+'</span>'+
+    '<span class="sp '+scoreClass(l.micro)+'" style="font-size:11px;padding:3px 8px;border-radius:5px" title="Micro score">Micro '+scoreLabel(l.micro)+'</span>'+
+    '<span style="font-size:11px;padding:3px 8px;border-radius:5px;background:var(--bg);font-weight:600" title="Combined score">'+scoreLabel(l.combined)+'/5</span>'+
+    '</div>';
+  var linkRow=l.url?'<a href="'+l.url+'" target="_blank" style="display:inline-block;font-size:11px;color:var(--blue);font-weight:600;margin-bottom:10px">View listing ↗</a>':'';
+  var mapDiv='<div id="call-modal-minimap" style="height:140px;border-radius:6px;overflow:hidden;margin-bottom:10px;background:#eee"></div>';
+  var notesArea='<div style="margin-bottom:14px">'+
+    '<textarea placeholder="Any other detail from the call…" style="width:100%;min-height:50px;font-size:12px;font-family:inherit;border:1px solid var(--border);border-radius:6px;padding:6px;box-sizing:border-box" onblur="saveListingField(\''+l.id+'\',\'notes\',this.value)">'+(l.notes||'').replace(/</g,'&lt;')+'</textarea>'+
+    '</div>';
+  return scores+linkRow+mapDiv+notesArea;
+}
+
+function renderCallModalLastNote(l){
   var last=latestAction(l);
-  var lastNoteBlock='<div style="margin-bottom:14px;padding:10px;background:var(--bg);border-radius:6px">'+
+  return '<div style="margin-bottom:14px;padding:10px;background:var(--bg);border-radius:6px">'+
     '<div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px">Last note</div>'+
     (last?'<div style="font-size:12px;color:#333">'+escapeHtmlLocal(last.text)+'</div><div style="font-size:10px;color:var(--text2);margin-top:2px">'+new Date(last.date).toLocaleString()+'</div>':'<div style="font-size:12px;color:var(--text2)">No notes yet</div>')+
     '</div>';
+}
 
+function renderCallModalLog(l){
   var parsed=parseTodayAction(l);
-  var logBlock='<div>'+
+  return '<div>'+
     '<div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px">Log this call</div>'+
     '<select onchange="modalHandleTodayAction(\''+l.id+'\',this.value)" style="width:100%;font-size:12px;padding:5px 6px;border:1px solid var(--border);border-radius:5px;font-family:inherit;margin-bottom:6px;box-sizing:border-box">'+
       '<option value="">— select outcome —</option>'+
@@ -977,8 +1036,6 @@ function renderCallModalBody(l){
     '</select>'+
     (parsed.code==='other'?'<input type="text" id="modal-otherinput-'+l.id+'" value="'+(parsed.text||'').replace(/"/g,'&quot;')+'" placeholder="Reason…" onblur="modalSaveOtherReason(\''+l.id+'\',this.value)" onkeydown="if(event.key===\'Enter\')this.blur()" style="width:100%;font-size:12px;padding:5px 6px;border:1px solid var(--border);border-radius:5px;font-family:inherit;box-sizing:border-box">':'')+
     '</div>';
-
-  return header+statusBlock+lastNoteBlock+logBlock;
 }
 
 async function modalSaveAgentPhoneAndCall(id){
@@ -997,9 +1054,9 @@ async function modalSaveAgentPhoneAndCall(id){
 function modalHandleTodayAction(id,code){
   var l=listings.find(function(x){return x.id===id;});
   if(!l||!code)return;
-  if(code==='other'){pendingOther[id]=true;refreshCallUI(id);return;}
+  if(code==='other'){pendingOther[id]=true;refreshCallModalLog(id);return;}
   pendingOther[id]=false;
-  logTodayAction(l,ACTION_LABELS[code]).then(function(){refreshCallUI(id);});
+  logTodayAction(l,ACTION_LABELS[code]).then(function(){refreshCallModalLog(id);});
 }
 
 function modalSaveOtherReason(id,val){
@@ -1008,7 +1065,7 @@ function modalSaveOtherReason(id,val){
   var trimmed=(val||'').trim();
   if(!trimmed)return;
   pendingOther[id]=false;
-  logTodayAction(l,'Other: '+trimmed).then(function(){refreshCallUI(id);});
+  logTodayAction(l,'Other: '+trimmed).then(function(){refreshCallModalLog(id);});
 }
 
 async function placeCall(id,phone){
