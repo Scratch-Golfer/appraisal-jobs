@@ -234,6 +234,30 @@ input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--bl
     </div>
   </div>
 </div>
+<div id="overlay-view-4" style="display:none;position:fixed;top:44px;left:0;right:0;bottom:0;background:#f7f6f3;z-index:900;overflow-y:auto;padding:24px">
+  <div style="max-width:1400px">
+    <button onclick="s4CloseListing()" style="padding:6px 12px;font-size:12px;border:1px solid #ddd;border-radius:6px;background:#fff;cursor:pointer;margin-bottom:14px">← Back to list</button>
+    <h2 id="s4-addr" style="font-size:16px;margin:0 0 4px"></h2>
+    <div id="s4-sub" style="color:#6b6a65;font-size:12.5px;margin-bottom:12px"></div>
+    <div id="s4-info" style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:12.5px;color:#444;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px 20px"></div>
+    <div style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:16px;margin-bottom:16px">
+      <div style="font-size:11px;color:#999;font-weight:600;letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px">Floorplan</div>
+      <div class="pl-cw" id="s4-pl-cw" style="min-height:200px">
+        <canvas id="s4-pl-cv"></canvas>
+        <div id="s4-pl-empty" style="display:none;color:#9b9a95;font-size:12.5px;padding:40px 0">No floorplan on file.</div>
+      </div>
+      <div id="s4-pl-status" style="font-size:11px;color:#888;font-family:monospace;margin-top:6px"></div>
+    </div>
+    <div style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:16px;margin-bottom:16px">
+      <label style="font-size:11px;color:#666;display:block;margin-bottom:4px">Notes / comments</label>
+      <textarea id="s4-notes" placeholder="Review notes…" style="width:100%;min-height:60px;font-size:12.5px;font-family:inherit;border:1px solid #ddd;border-radius:6px;padding:8px"></textarea>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button onclick="s4Pass()" style="padding:10px 20px;font-size:13px;font-weight:600;background:#1C3A0E;color:#fff;border:none;border-radius:8px;cursor:pointer">✓ Pass → Schedule Viewing</button>
+      <button onclick="s4Fail()" style="padding:10px 20px;font-size:13px;font-weight:600;background:#fff;color:#A32D2D;border:1px solid #e0b3b3;border-radius:8px;cursor:pointer">✗ Fail</button>
+    </div>
+  </div>
+</div>
 <script>
 function switchStageView(view){
   document.querySelectorAll(".sitenav a").forEach(function(a){ a.classList.toggle("active", a.dataset.view === view); });
@@ -368,6 +392,111 @@ async function s3Reject(){
   s3CurListing.status='rejected';
   toast('Rejected');
   s3CloseListing();
+}
+
+// ── Stage 4: Scratch Check — full listing view with read-only floorplan ──
+var s4CurListing=null;
+var s4cv=document.getElementById('s4-pl-cv'),s4ctx=s4cv.getContext('2d'),s4pcw=document.getElementById('s4-pl-cw');
+function s4OpenListing(id){
+  var l=listings.find(function(x){return x.id===id;});
+  if(!l)return;
+  s4CurListing=l;
+  document.getElementById('overlay-view-4').style.display='block';
+  document.getElementById('s4-addr').textContent=l.addr||'—';
+  var rent=l.best_rent_price||l.price;
+  document.getElementById('s4-sub').textContent=(rent?'£'+Number(rent).toLocaleString()+' p.a.':'Rent not set')+(l.size?' · '+l.size+' sqft':'')+(l.size&&rent?' · £'+Math.round(rent/l.size)+' /sqft':'');
+  var layout=l.bay_layout||null;
+  var nb=l.expected_bays||(layout&&layout.bays?layout.bays.filter(function(b){return b.type!=='toilet';}).length:null);
+  var nt=layout&&layout.bays?layout.bays.filter(function(b){return b.type==='toilet';}).length:0;
+  var cpb=(nb&&rent)?'£'+Math.round(rent/nb).toLocaleString('en-GB')+' p.a.':'—';
+  var info=[];
+  if(l.agent)info.push(['Agent',l.agent]);
+  if(l.postcode)info.push(['Postcode',l.postcode]);
+  info.push(['Bays / toilets',nb!=null?nb+' bay'+(nb===1?'':'s')+(nt?' · '+nt+' toilet'+(nt===1?'':'s'):''):'Not assessed']);
+  info.push(['Cost per bay',cpb]);
+  info.push(['Ceiling ≥3m',l.ceiling_ok?'✓ Confirmed':'Not confirmed']);
+  if(l.time_on_market)info.push(['Time on market',l.time_on_market]);
+  info.push(['Ready to let',l.ready_to_let?'✓ Yes':'—']);
+  if(l.macro!=null)info.push(['Macro score',l.macro+' / 5']);
+  if(l.micro!=null)info.push(['Micro score',l.micro+' / 5']);
+  if(l.url)info.push(['Listing','<a href="'+l.url+'" target="_blank" style="color:#3B6D11;font-weight:600">View ↗</a>']);
+  document.getElementById('s4-info').innerHTML=info.map(function(row){
+    return '<div><div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">'+row[0]+'</div><div style="font-weight:600">'+row[1]+'</div></div>';
+  }).join('');
+  document.getElementById('s4-notes').value=l.notes||'';
+  document.getElementById('s4-notes').onblur=function(){saveListingField(l.id,'notes',this.value);};
+  s4ctx.clearRect(0,0,s4cv.width,s4cv.height);
+  document.getElementById('s4-pl-status').textContent='';
+  document.getElementById('s4-pl-empty').style.display='none';
+  if(l.floorplan_url){
+    if(/\.pdf(\?|$)/i.test(l.floorplan_url)){
+      document.getElementById('s4-pl-status').textContent='Loading PDF…';
+      s3PdfFirstPageToImg(l.floorplan_url).then(function(img){s4DrawFloorplan(img,layout);})
+        .catch(function(err){document.getElementById('s4-pl-status').textContent='Could not load the floorplan PDF: '+err.message;});
+    }else{
+      var img=new Image();
+      img.crossOrigin='anonymous';
+      img.onload=function(){s4DrawFloorplan(img,layout);};
+      img.onerror=function(){document.getElementById('s4-pl-status').textContent='Could not load the floorplan image.';};
+      img.src=l.floorplan_url;
+    }
+  }else{
+    document.getElementById('s4-pl-empty').style.display='block';
+  }
+}
+function s4DrawFloorplan(imgEl,layout){
+  var MAX=8000,nw=imgEl.naturalWidth,nh=imgEl.naturalHeight;
+  if(nw>MAX){nh=Math.round(nh*MAX/nw);nw=MAX;}if(nh>MAX){nw=Math.round(nw*MAX/nh);nh=MAX;}
+  s4cv.width=nw;s4cv.height=nh;
+  var mxW=Math.max(300,s4pcw.clientWidth||700)-2,mxH=780,asp=nw/nh;
+  var dw=mxW,dh=dw/asp;if(dh>mxH){dh=mxH;dw=dh*asp;}
+  s4cv.style.width=Math.round(dw)+'px';s4cv.style.height=Math.round(dh)+'px';
+  s4ctx.clearRect(0,0,nw,nh);
+  s4ctx.drawImage(imgEl,0,0,nw,nh);
+  if(layout&&layout.bays&&layout.ppm){
+    var ppm=layout.ppm,L=Math.max(2,nw/500);
+    layout.bays.forEach(function(b,i){
+      var isBay=(b.type!=='toilet');
+      var w=ppm*(b.r?(isBay?S3_BD:S3_TD):(isBay?S3_BW:S3_TW));
+      var h=ppm*(b.r?(isBay?S3_BW:S3_TW):(isBay?S3_BD:S3_TD));
+      s4ctx.save();s4ctx.translate(b.cx,b.cy);s4ctx.rotate(b.a);
+      s4ctx.fillStyle=isBay?'rgba(99,153,34,.22)':'rgba(24,95,165,.18)';
+      s4ctx.fillRect(-w/2,-h/2,w,h);
+      s4ctx.strokeStyle=isBay?'#639922':'#185FA5';s4ctx.lineWidth=L*1.5;s4ctx.strokeRect(-w/2,-h/2,w,h);
+      if(isBay){
+        var bn=0;for(var j=0;j<i;j++)if(layout.bays[j].type!=='toilet')bn++;
+        var fs=Math.max(14,Math.min(w/4,h/3,60));
+        s4ctx.fillStyle='#27500A';s4ctx.font='600 '+fs+'px sans-serif';
+        s4ctx.textAlign='center';s4ctx.textBaseline='middle';s4ctx.fillText(bn+1,0,0);
+      }else{
+        var fs2=Math.max(10,Math.min(w*.6,h*.85,36));
+        s4ctx.font=fs2+'px sans-serif';s4ctx.textAlign='center';s4ctx.textBaseline='middle';s4ctx.fillText('\uD83D\uDEB9',0,0);
+      }
+      s4ctx.restore();
+    });
+    document.getElementById('s4-pl-status').textContent='Bay layout from Assess Floorplan, 1m='+ppm.toFixed(1)+'px';
+  }else{
+    document.getElementById('s4-pl-status').textContent='No bay layout recorded.';
+  }
+}
+function s4CloseListing(){
+  s4CurListing=null;
+  document.getElementById('overlay-view-4').style.display='none';
+  render();
+}
+async function s4Pass(){
+  if(!s4CurListing)return;
+  if(s4CurListing._dbId)await db.from('listings').update({status:'schedule_viewing'}).eq('id',s4CurListing._dbId);
+  s4CurListing.status='schedule_viewing';
+  toast('✓ Passed → Schedule Viewing');
+  s4CloseListing();
+}
+async function s4Fail(){
+  if(!s4CurListing)return;
+  if(s4CurListing._dbId)await db.from('listings').update({status:'rejected'}).eq('id',s4CurListing._dbId);
+  s4CurListing.status='rejected';
+  toast('Failed');
+  s4CloseListing();
 }
 
 // ── Stage 3: Bay planner — copied verbatim from agent appraisal tool, s3-namespaced ──
@@ -1269,7 +1398,7 @@ function render(){
             '<button class="act rst" onclick="action(\''+l.id+'\',\'enquiry\')">↩</button>'+
             '<button class="act rej" onclick="action(\''+l.id+'\',\'rejected\')" title="Reject">Reject</button>'
           :curTab==='scratch_check'
-          ?'<button class="act acc" onclick="action(\''+l.id+'\',\'schedule_viewing\')" title="Pass → Schedule Viewing">Pass</button>'+
+          ?'<button class="act acc" onclick="s4OpenListing(\''+l.id+'\')" title="Open listing">Open</button>'+
             '<button class="act rst" onclick="action(\''+l.id+'\',\'floorplan_review\')">↩</button>'+
             '<button class="act rej" onclick="action(\''+l.id+'\',\'rejected\')" title="Fail">Fail</button>'
           :'<button class="act rst" onclick="action(\''+l.id+'\',\'inbox\')">↩</button>')+
@@ -1547,6 +1676,7 @@ function rowClick(e,id){
   if(e.target.tagName==='INPUT'||e.target.tagName==='BUTTON'||e.target.tagName==='A')return;
   var l=listings.find(function(x){return x.id===id;});
   if(l&&l.status==='floorplan_review'){s3OpenListing(id);return;}
+  if(l&&l.status==='scratch_check'){s4OpenListing(id);return;}
   document.querySelectorAll('#tbody tr').forEach(function(r){r.classList.remove('highlighted');});
   showDetail(id);
   var tr=document.getElementById('tr-'+id);if(tr)tr.classList.add('highlighted');
