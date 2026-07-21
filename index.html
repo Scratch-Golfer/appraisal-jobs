@@ -1067,10 +1067,31 @@ function renderCallModalInfo(l){
     '</div>';
   var linkRow=l.url?'<a href="'+l.url+'" target="_blank" style="display:inline-block;font-size:11px;color:var(--blue);font-weight:600;margin-bottom:10px">View listing ↗</a>':'';
   var mapDiv='<div id="call-modal-minimap" style="height:260px;border-radius:6px;overflow:hidden;margin-bottom:10px;background:#eee"></div>';
-  var notesArea='<div style="margin-bottom:14px">'+
-    '<textarea placeholder="Any other detail from the call…" style="width:100%;min-height:50px;font-size:12px;font-family:inherit;border:1px solid var(--border);border-radius:6px;padding:6px;box-sizing:border-box" onblur="saveListingField(\''+l.id+'\',\'notes\',this.value)">'+(l.notes||'').replace(/</g,'&lt;')+'</textarea>'+
+  var propNotesArea='<div style="margin-bottom:10px">'+
+    '<div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px">Property notes</div>'+
+    '<textarea id="call-modal-propnotes-'+l.id+'" placeholder="Property notes…" style="width:100%;min-height:50px;font-size:12px;font-family:inherit;border:1px solid var(--border);border-radius:6px;padding:6px;box-sizing:border-box" onblur="saveListingField(\''+l.id+'\',\'notes\',this.value)">'+(l.notes||'').replace(/</g,'&lt;')+'</textarea>'+
     '</div>';
-  return scores+linkRow+mapDiv+notesArea;
+  var callNoteArea='<div style="margin-bottom:14px">'+
+    '<div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px">Add a note about this call</div>'+
+    '<textarea id="call-modal-newnote-'+l.id+'" placeholder="What happened on this call…" style="width:100%;min-height:40px;font-size:12px;font-family:inherit;border:1px solid var(--border);border-radius:6px;padding:6px;box-sizing:border-box"></textarea>'+
+    '<button onclick="appendCallNote(\''+l.id+'\')" style="margin-top:6px;padding:6px 14px;font-size:12px;font-weight:600;background:#1C3A0E;color:#fff;border:none;border-radius:6px;cursor:pointer">Save note</button>'+
+    '</div>';
+  return scores+linkRow+mapDiv+propNotesArea+callNoteArea;
+}
+
+async function appendCallNote(id){
+  var input=document.getElementById('call-modal-newnote-'+id);
+  if(!input)return;
+  var text=(input.value||'').trim();
+  if(!text)return;
+  var l=listings.find(function(x){return x.id===id;});
+  if(!l)return;
+  var stamp=new Date().toLocaleString();
+  var updated=(l.notes?l.notes+'\n':'')+'['+stamp+'] '+text;
+  await saveListingField(id,'notes',updated);
+  input.value='';
+  var propEl=document.getElementById('call-modal-propnotes-'+id);
+  if(propEl)propEl.value=updated;
 }
 
 function renderCallModalLastNote(l){
