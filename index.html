@@ -301,6 +301,7 @@ input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--bl
         <div id="s4-minimap" style="height:200px;border-radius:10px;overflow:hidden;margin-bottom:16px;background:#eee"></div>
         <div style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:16px;margin-bottom:16px" id="s4-scores"></div>
         <div style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:16px" id="s4-history"></div>
+        <div style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:16px;margin-top:16px" id="s4-callhistory"></div>
       </div>
     </div>
   </div>
@@ -455,6 +456,8 @@ function s4OpenListing(id){
   document.getElementById('s4-sub').textContent=(rent?'£'+Number(rent).toLocaleString()+' p.a.':'Rent not set')+(l.size?' · '+l.size+' sqft':'')+(l.size&&rent?' · £'+Math.round(rent/l.size)+' /sqft':'');
   document.getElementById('s4-callwidget').setAttribute('data-lid',id);
   paintCallWidgets(id);
+  document.getElementById('s4-callhistory').innerHTML=renderCallHistoryPlaceholder(id);
+  loadCallHistoryInto(id);
   var layout=l.bay_layout||null;
   var nb=l.expected_bays||(layout&&layout.bays?layout.bays.filter(function(b){return b.type!=='toilet';}).length:null);
   var nt=layout&&layout.bays?layout.bays.filter(function(b){return b.type==='toilet';}).length:0;
@@ -1132,6 +1135,42 @@ function escapeHtmlLocal(s){
   return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// CALL HISTORY — reusable across popup, sidebar, and Scratch Check.
+// Any element with class="call-history-container" data-lid="<id>" gets filled by loadCallHistoryInto(id).
+function renderCallHistoryPlaceholder(id){
+  return '<div class="call-history-container" data-lid="'+id+'"><div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px">Call history</div><div style="font-size:12px;color:var(--text2)">Loading…</div></div>';
+}
+
+async function loadCallHistoryInto(id){
+  var containers=document.querySelectorAll('.call-history-container[data-lid="'+id+'"]');
+  if(!containers.length)return;
+  var label='<div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px">Call history</div>';
+  var html;
+  try{
+    var {data,error}=await db.from('call_logs').select('*').eq('listing_id',id).order('created_at',{ascending:false}).limit(10);
+    if(error){
+      html=label+'<div style="font-size:12px;color:var(--text2)">Failed to load</div>';
+    }else if(!data||!data.length){
+      html=label+'<div style="font-size:12px;color:var(--text2)">No calls yet</div>';
+    }else{
+      var rows=data.map(function(r){
+        var dt=r.created_at?new Date(r.created_at).toLocaleString():'';
+        var dur=r.duration_seconds?formatCallDuration(r.duration_seconds):'—';
+        var audio=r.recording_url?'<audio controls preload="none" style="width:100%;margin-top:4px;height:28px"><source src="'+SUPABASE_URL+'/functions/v1/twilio-recording-proxy?url='+encodeURIComponent(r.recording_url)+'"></audio>':'<div style="font-size:10px;color:var(--text2);margin-top:2px">No recording</div>';
+        return '<div style="padding:8px 0;border-top:1px solid var(--border);font-size:12px">'
+          +'<div style="display:flex;justify-content:space-between;color:#333"><span>'+dt+'</span><span>'+dur+'</span></div>'
+          +'<div style="color:var(--text2);font-size:11px">'+escapeHtmlLocal(r.status||'—')+(r.agent_phone?' · '+escapeHtmlLocal(r.agent_phone):'')+'</div>'
+          +audio+'</div>';
+      }).join('');
+      html=label+rows;
+    }
+  }catch(e){
+    console.error('loadCallHistoryInto failed:',e);
+    html=label+'<div style="font-size:12px;color:var(--text2)">Failed to load</div>';
+  }
+  containers.forEach(function(el){el.innerHTML=html;});
+}
+
 // ROW ICON — shows saved phone number + current call state, opens the popup
 function renderCallWidget(l){
   var state=callStates[l.id]||{mode:'idle'};
@@ -1197,11 +1236,13 @@ function openCallModal(id){
     +'<div id="call-modal-status">'+renderCallModalStatus(l)+'</div>'
     +renderCallModalInfo(l)
     +'<div id="call-modal-lastnote">'+renderCallModalLastNote(l)+'</div>'
-    +'<div id="call-modal-log">'+renderCallModalLog(l)+'</div>';
+    +'<div id="call-modal-log">'+renderCallModalLog(l)+'</div>'
+    +'<div style="margin-top:14px">'+renderCallHistoryPlaceholder(id)+'</div>';
   overlay.appendChild(card);
   document.body.appendChild(overlay);
 
   initCallModalMiniMap(l);
+  loadCallHistoryInto(id);
 
   if(isFirstOpen&&l.agent_phone){
     placeCall(id,l.agent_phone);
@@ -1386,6 +1427,9 @@ function endCallUI(id){
   refreshCallUI(id);
   if(activeCallListingId===id){activeCall=null;activeCallListingId=null;}
   if(wasConnected)toast('Call ended — '+formatCallDuration(duration));
+  // Status/duration land within a couple seconds; the recording can take longer to process
+  setTimeout(function(){loadCallHistoryInto(id);},2500);
+  setTimeout(function(){loadCallHistoryInto(id);},20000);
 }
 
 function daysAgo(n){var d=new Date();d.setDate(d.getDate()-n);return d.toISOString().split('T')[0];}
@@ -2220,10 +2264,12 @@ function showDetail(id){
     +(l.price&&l.size?'<div style="background:#f5f4f0;border-radius:6px;padding:10px;text-align:center"><div style="font-size:16px;font-weight:700">£'+Math.round(l.price/l.size)+'</div><div style="font-size:10px;color:#888">£/sqft</div></div>':'')
     +'</div>'
     +(l.agent?'<div style="font-size:12px;color:#666;margin-bottom:8px">Agent: <strong>'+l.agent+'</strong></div>':'')
+    +'<div class="cw-target" data-lid="'+l.id+'" style="margin-bottom:12px">'+renderCallWidget(l)+'</div>'
     +(l.url?'<a href="'+l.url+'" target="_blank" style="display:inline-block;margin-bottom:16px;font-size:12px;color:#3B6D11;font-weight:600">View on Rightmove ↗</a><br>':'')
     +(l.status==='enquiry'?buildEnquiryDetailBlock(l):'')
     +(l.status==='scratch_check'?buildScratchCheckDetailBlock(l):'')
-    +buildScoreBlock(l);
+    +buildScoreBlock(l)
+    +'<div style="margin-top:16px;margin-bottom:16px">'+renderCallHistoryPlaceholder(l.id)+'</div>';
   var btnStyle='flex:1;padding:9px;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;';
   var hist=(l.action_history||[]).slice().reverse();
   inner+='<div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#888;margin-bottom:8px;margin-top:16px">Action history</div>';
@@ -2277,6 +2323,7 @@ function showDetail(id){
   }
   // Load the inline mini-map at the bottom of the sidebar automatically — no click needed
   initDetailMiniMap(l);
+  loadCallHistoryInto(l.id);
 }
 
 function rowClick(e,id){
