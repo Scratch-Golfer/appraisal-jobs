@@ -128,7 +128,7 @@ input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--bl
 #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--text);color:#fff;font-size:12px;padding:7px 16px;border-radius:var(--radius);opacity:0;transition:opacity .2s;pointer-events:none;z-index:9999;white-space:nowrap}
 #toast.show{opacity:1}
 /* Stage 3 — bay planner, copied verbatim from agent appraisal tool */
-#s3-planner-wrap{max-width:900px;}
+#s3-planner-wrap{max-width:1400px;}
 .pl-tb{display:flex;align-items:center;flex-wrap:wrap;gap:5px;padding-bottom:10px;border-bottom:1px solid #eee;margin-bottom:10px;}
 .pb{padding:5px 11px;font-size:12px;font-weight:500;border:1px solid #ddd;border-radius:6px;cursor:pointer;background:#fff;color:#1a1a1a;font-family:inherit;white-space:nowrap;}
 .pb:hover{background:#f5f5f2;}
@@ -142,7 +142,7 @@ input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--bl
 .pi{font-size:11px;color:#888;font-family:monospace;white-space:nowrap;}
 #s3-ang{width:52px;padding:4px 6px;font-size:12px;font-family:monospace;border:1px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;text-align:center;outline:none;}
 #s3-ang:disabled{opacity:.3;}
-.pl-cw{position:relative;background:#f5f5f2;border:1px solid #e8e8e3;border-radius:8px;display:flex;align-items:center;justify-content:center;min-height:300px;overflow:hidden;user-select:none;}
+.pl-cw{position:relative;background:#f5f5f2;border:1px solid #e8e8e3;border-radius:8px;display:flex;align-items:center;justify-content:center;min-height:300px;overflow:auto;user-select:none;}
 #s3-pl-cv{display:block;cursor:crosshair;}
 .pl-st{display:flex;justify-content:space-between;padding:6px 0 0;font-size:11px;color:#888;font-family:monospace;border-top:1px solid #eee;margin-top:6px;flex-wrap:wrap;gap:4px;}
 #s3-scdlg{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;background:#fff;border:1px solid #ccc;border-radius:10px;padding:20px;min-width:260px;box-shadow:0 8px 32px rgba(0,0,0,.2);}
@@ -182,7 +182,7 @@ input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--bl
   <div style="padding-top:100px"><div style="font-size:13.5px;color:#1a1a18;margin-bottom:4px;font-weight:600">Coming soon</div>Built next.</div>
 </div>
 <div id="overlay-view-3" style="display:none;position:fixed;top:44px;left:0;right:0;bottom:0;background:#f7f6f3;z-index:900;overflow-y:auto;padding:24px">
-  <div id="s3-planner-mode" style="max-width:900px">
+  <div id="s3-planner-mode" style="max-width:1400px">
     <button onclick="s3CloseListing()" style="padding:6px 12px;font-size:12px;border:1px solid #ddd;border-radius:6px;background:#fff;cursor:pointer;margin-bottom:14px">← Back to list</button>
     <h2 id="s3-addr" style="font-size:16px;margin:0 0 4px"></h2>
     <div id="s3-sub" style="color:#6b6a65;font-size:12.5px;margin-bottom:12px"></div>
@@ -203,6 +203,11 @@ input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--bl
         <button class="pb" id="s3-pb-ori">New: portrait</button>
         <button class="pb" id="s3-pb-undo">Undo</button>
         <button class="pb" id="s3-pb-clear">Clear all</button>
+        <div class="psep"></div>
+        <button class="pb" id="s3-pb-zout">− Zoom</button>
+        <span class="pi" id="s3-zlbl">100%</span>
+        <button class="pb" id="s3-pb-zin">+ Zoom</button>
+        <button class="pb" id="s3-pb-zrst">Reset zoom</button>
         <div class="psep"></div>
         <span class="pi" id="s3-pb-blbl">0 bays</span>
       </div>
@@ -370,6 +375,7 @@ var S3_TW=2.3,S3_TD=1.6;   // toilet metres
 var s3plImg=null,s3ppm=null,s3bays=[],s3sel=-1,s3defRot=false,s3plMode='normal',s3calPts=[];
 var s3mpd=null,s3mouse={x:0,y:0,inside:false};
 var s3nextType='bay';
+var s3zoom=1,s3baseDw=0,s3baseDh=0;
 
 function s3lw(){return Math.max(2,s3cv.width/500);}
 function s3dims(b){
@@ -472,6 +478,7 @@ function s3PlReset(){
   document.getElementById('s3-pl-stl').textContent='Set scale first, then click to place bays';
   document.getElementById('s3-scdlg').style.display='none';document.getElementById('s3-bay-summary').style.display='none';
   document.getElementById('s3-cost-wrap').style.display='none';
+  s3zoom=1;s3baseDw=0;s3baseDh=0;document.getElementById('s3-zlbl').textContent='100%';
 }
 
 function s3PlLoad(imgEl){
@@ -479,9 +486,11 @@ function s3PlLoad(imgEl){
   var MAX=8000,nw=imgEl.naturalWidth,nh=imgEl.naturalHeight;
   if(nw>MAX){nh=Math.round(nh*MAX/nw);nw=MAX;}if(nh>MAX){nw=Math.round(nw*MAX/nh);nh=MAX;}
   s3cv.width=nw;s3cv.height=nh;
-  var mxW=Math.max(300,s3pcw.clientWidth||700)-2,mxH=520,asp=nw/nh;
+  var mxW=Math.max(300,s3pcw.clientWidth||700)-2,mxH=780,asp=nw/nh;
   var dw=mxW,dh=dw/asp;if(dh>mxH){dh=mxH;dw=dh*asp;}
+  s3baseDw=dw;s3baseDh=dh;s3zoom=1;
   s3cv.style.width=Math.round(dw)+'px';s3cv.style.height=Math.round(dh)+'px';
+  document.getElementById('s3-zlbl').textContent='100%';
   var layout=s3CurListing&&s3CurListing.bay_layout?s3CurListing.bay_layout:null;
   if(layout&&layout.bays&&Array.isArray(layout.bays)&&layout.bays.length>0){
     s3bays=layout.bays;
@@ -516,6 +525,16 @@ document.getElementById('s3-pb-del').addEventListener('click',function(){if(s3se
 document.getElementById('s3-pb-ori').addEventListener('click',function(){s3defRot=!s3defRot;this.textContent='New: '+(s3defRot?'landscape':'portrait');s3draw();});
 document.getElementById('s3-pb-undo').addEventListener('click',function(){if(s3bays.length){s3bays.pop();if(s3sel>=s3bays.length)s3sel=-1;s3plUI();s3draw();}});
 document.getElementById('s3-pb-clear').addEventListener('click',function(){s3bays=[];s3sel=-1;s3plUI();s3draw();});
+function s3ApplyZoom(){
+  if(!s3baseDw)return;
+  s3zoom=Math.max(0.25,Math.min(4,s3zoom));
+  s3cv.style.width=Math.round(s3baseDw*s3zoom)+'px';
+  s3cv.style.height=Math.round(s3baseDh*s3zoom)+'px';
+  document.getElementById('s3-zlbl').textContent=Math.round(s3zoom*100)+'%';
+}
+document.getElementById('s3-pb-zin').addEventListener('click',function(){s3zoom*=1.25;s3ApplyZoom();});
+document.getElementById('s3-pb-zout').addEventListener('click',function(){s3zoom/=1.25;s3ApplyZoom();});
+document.getElementById('s3-pb-zrst').addEventListener('click',function(){s3zoom=1;s3ApplyZoom();});
 document.getElementById('s3-ang').addEventListener('change',function(){if(s3sel===-1)return;var d=parseFloat(this.value);if(!isNaN(d)){s3bays[s3sel].a=d*Math.PI/180;s3draw();}});
 
 function s3ec(e){var r=s3cv.getBoundingClientRect();return{x:(e.clientX-r.left)*(s3cv.width/r.width),y:(e.clientY-r.top)*(s3cv.height/r.height)};}
