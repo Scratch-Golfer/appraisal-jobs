@@ -239,32 +239,23 @@ input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--bl
   <div style="max-width:1400px">
     <button onclick="s4CloseListing()" style="padding:6px 12px;font-size:12px;border:1px solid #ddd;border-radius:6px;background:#fff;cursor:pointer;margin-bottom:14px">← Back to list</button>
     <h2 id="s4-addr" style="font-size:16px;margin:0 0 4px"></h2>
-    <div id="s4-sub" style="color:#6b6a65;font-size:12.5px;margin-bottom:16px"></div>
-    <div style="display:grid;grid-template-columns:1fr 380px;gap:20px">
-      <div>
-        <div style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:16px;margin-bottom:16px">
-          <div style="font-size:11px;color:#999;font-weight:600;letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px">Floorplan</div>
-          <div class="pl-cw" id="s4-pl-cw" style="min-height:200px">
-            <canvas id="s4-pl-cv"></canvas>
-            <div id="s4-pl-empty" style="display:none;color:#9b9a95;font-size:12.5px;padding:40px 0">No floorplan on file.</div>
-          </div>
-          <div id="s4-pl-status" style="font-size:11px;color:#888;font-family:monospace;margin-top:6px"></div>
-        </div>
-        <div id="s4-info" style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:12.5px;color:#444;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px 20px"></div>
-        <div style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:16px;margin-bottom:16px">
-          <label style="font-size:11px;color:#666;display:block;margin-bottom:4px">Notes / comments</label>
-          <textarea id="s4-notes" placeholder="Review notes…" style="width:100%;min-height:60px;font-size:12.5px;font-family:inherit;border:1px solid #ddd;border-radius:6px;padding:8px"></textarea>
-        </div>
-        <div style="display:flex;gap:10px">
-          <button onclick="s4Pass()" style="padding:10px 20px;font-size:13px;font-weight:600;background:#1C3A0E;color:#fff;border:none;border-radius:8px;cursor:pointer">✓ Pass → Schedule Viewing</button>
-          <button onclick="s4Fail()" style="padding:10px 20px;font-size:13px;font-weight:600;background:#fff;color:#A32D2D;border:1px solid #e0b3b3;border-radius:8px;cursor:pointer">✗ Fail</button>
-        </div>
+    <div id="s4-sub" style="color:#6b6a65;font-size:12.5px;margin-bottom:12px"></div>
+    <div id="s4-info" style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:12.5px;color:#444;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px 20px"></div>
+    <div style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:16px;margin-bottom:16px">
+      <div style="font-size:11px;color:#999;font-weight:600;letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px">Floorplan</div>
+      <div class="pl-cw" id="s4-pl-cw" style="min-height:200px">
+        <canvas id="s4-pl-cv"></canvas>
+        <div id="s4-pl-empty" style="display:none;color:#9b9a95;font-size:12.5px;padding:40px 0">No floorplan on file.</div>
       </div>
-      <div>
-        <div id="s4-minimap" style="height:200px;border-radius:10px;overflow:hidden;margin-bottom:16px;background:#eee"></div>
-        <div style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:16px;margin-bottom:16px" id="s4-scores"></div>
-        <div style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:16px" id="s4-history"></div>
-      </div>
+      <div id="s4-pl-status" style="font-size:11px;color:#888;font-family:monospace;margin-top:6px"></div>
+    </div>
+    <div style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:16px;margin-bottom:16px">
+      <label style="font-size:11px;color:#666;display:block;margin-bottom:4px">Notes / comments</label>
+      <textarea id="s4-notes" placeholder="Review notes…" style="width:100%;min-height:60px;font-size:12.5px;font-family:inherit;border:1px solid #ddd;border-radius:6px;padding:8px"></textarea>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button onclick="s4Pass()" style="padding:10px 20px;font-size:13px;font-weight:600;background:#1C3A0E;color:#fff;border:none;border-radius:8px;cursor:pointer">✓ Pass → Schedule Viewing</button>
+      <button onclick="s4Fail()" style="padding:10px 20px;font-size:13px;font-weight:600;background:#fff;color:#A32D2D;border:1px solid #e0b3b3;border-radius:8px;cursor:pointer">✗ Fail</button>
     </div>
   </div>
 </div>
@@ -427,13 +418,12 @@ function s4OpenListing(id){
   info.push(['Ceiling ≥3m',l.ceiling_ok?'✓ Confirmed':'Not confirmed']);
   if(l.time_on_market)info.push(['Time on market',l.time_on_market]);
   info.push(['Ready to let',l.ready_to_let?'✓ Yes':'—']);
+  if(l.macro!=null)info.push(['Macro score',l.macro+' / 5']);
+  if(l.micro!=null)info.push(['Micro score',l.micro+' / 5']);
   if(l.url)info.push(['Listing','<a href="'+l.url+'" target="_blank" style="color:#3B6D11;font-weight:600">View ↗</a>']);
   document.getElementById('s4-info').innerHTML=info.map(function(row){
     return '<div><div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">'+row[0]+'</div><div style="font-weight:600">'+row[1]+'</div></div>';
   }).join('');
-  document.getElementById('s4-scores').innerHTML=buildScoreBlock(l);
-  document.getElementById('s4-history').innerHTML=buildActionHistoryBlock(l);
-  initS4MiniMap(l);
   document.getElementById('s4-notes').value=l.notes||'';
   document.getElementById('s4-notes').onblur=function(){saveListingField(l.id,'notes',this.value);};
   s4ctx.clearRect(0,0,s4cv.width,s4cv.height);
@@ -490,39 +480,7 @@ function s4DrawFloorplan(imgEl,layout){
     document.getElementById('s4-pl-status').textContent='No bay layout recorded.';
   }
 }
-var _s4MiniMap=null;
-async function initS4MiniMap(l){
-  var el=document.getElementById('s4-minimap');
-  if(!el)return;
-  if(_s4MiniMap){_s4MiniMap.remove();_s4MiniMap=null;}
-  var lat=l.lat,lng=l.lng;
-  if(!lat||!lng){
-    try{
-      var gR=await fetch('https://maps.googleapis.com/maps/api/geocode/json?address='+encodeURIComponent((l.postcode||l.fullAddr||l.addr||'')+', UK')+'&region=gb&key='+GK);
-      var gD=await gR.json();
-      if(gD.status==='OK'&&gD.results.length){lat=gD.results[0].geometry.location.lat;lng=gD.results[0].geometry.location.lng;l.lat=lat;l.lng=lng;}
-    }catch(e){}
-  }
-  if(!document.getElementById('s4-minimap'))return; // closed while geocoding
-  if(!lat||!lng){el.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#aaa;font-size:11px">Location unavailable</div>';return;}
-  _s4MiniMap=L.map('s4-minimap',{zoomControl:false,attributionControl:false}).setView([lat,lng],15);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:19}).addTo(_s4MiniMap);
-  L.marker([lat,lng]).addTo(_s4MiniMap);
-  var msoaCode=null;
-  try{msoaCode=l.msoa_code||(JSON.parse(l.macro_data||'{}').msoa_code)||null;}catch(e){}
-  if(msoaCode){
-    try{
-      var url='https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/Middle_layer_Super_Output_Areas_December_2021_Boundaries_EW_BGC_V3/FeatureServer/0/query?where=MSOA21CD%3D%27'+msoaCode+'%27&outFields=MSOA21CD,MSOA21NM&f=geojson';
-      var r=await fetch(url);var gj=await r.json();
-      if(gj.features&&gj.features.length&&_s4MiniMap){
-        L.geoJSON(gj,{style:{color:'#3B6D11',weight:2,fillColor:'#3B6D11',fillOpacity:.1,dashArray:'4 4'}}).addTo(_s4MiniMap);
-      }
-    }catch(e){}
-  }
-  setTimeout(function(){if(_s4MiniMap)_s4MiniMap.invalidateSize();},100);
-}
 function s4CloseListing(){
-  if(_s4MiniMap){_s4MiniMap.remove();_s4MiniMap=null;}
   s4CurListing=null;
   document.getElementById('overlay-view-4').style.display='none';
   render();
@@ -889,6 +847,101 @@ async function initTwilioDevice(){
 }
 
 initTwilioDevice();
+
+var callStates={};
+var callTimers={};
+var activeCallListingId=null;
+
+function formatCallDuration(s){
+  var m=Math.floor(s/60),sec=s%60;
+  return m+':'+(sec<10?'0':'')+sec;
+}
+
+function renderCallWidget(l){
+  var state=callStates[l.id]||{mode:'idle'};
+  if(state.mode==='input'){
+    return '<input type="text" id="callinput-'+l.id+'" placeholder="Agent phone…" onclick="event.stopPropagation()" onkeydown="if(event.key===\'Enter\')saveAgentPhoneAndCall(\''+l.id+'\',this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;font-family:inherit;width:110px;margin-right:4px">'+
+      '<button class="act rst" onclick="cancelCallInput(\''+l.id+'\')" title="Cancel">✗</button>';
+  }
+  if(state.mode==='calling'){
+    return '<button class="act" disabled title="Calling…" style="color:var(--amber);margin-right:4px">📞…</button>';
+  }
+  if(state.mode==='connected'){
+    return '<button class="act" onclick="hangupCall(\''+l.id+'\')" title="Hang up" style="color:var(--green);margin-right:4px">📞 '+formatCallDuration(state.seconds||0)+'</button>';
+  }
+  return '<button class="act" onclick="startCall(\''+l.id+'\')" title="Call agent" style="margin-right:4px">📞</button>';
+}
+
+function refreshCallWidget(id){
+  var el=document.getElementById('callwidget-'+id);
+  if(!el)return;
+  var l=listings.find(function(x){return x.id===id;});
+  if(l)el.innerHTML=renderCallWidget(l);
+}
+
+function startCall(id){
+  var l=listings.find(function(x){return x.id===id;});
+  if(!l)return;
+  if(!l.agent_phone){
+    callStates[id]={mode:'input'};
+    refreshCallWidget(id);
+    setTimeout(function(){var el=document.getElementById('callinput-'+id);if(el)el.focus();},0);
+    return;
+  }
+  placeCall(id,l.agent_phone);
+}
+
+function cancelCallInput(id){
+  callStates[id]={mode:'idle'};
+  refreshCallWidget(id);
+}
+
+async function saveAgentPhoneAndCall(id,phone){
+  phone=(phone||'').trim();
+  if(!phone)return;
+  var {error}=await db.from('listings').update({agent_phone:phone}).eq('id',id).select();
+  if(error){toast('Failed to save number: '+error.message);return;}
+  var l=listings.find(function(x){return x.id===id;});
+  if(l)l.agent_phone=phone;
+  placeCall(id,phone);
+}
+
+function placeCall(id,phone){
+  if(!twilioDevice){toast('Phone system not ready — refresh and try again');return;}
+  callStates[id]={mode:'calling'};
+  refreshCallWidget(id);
+  activeCallListingId=id;
+  activeCall=twilioDevice.connect({params:{To:phone,listingId:id,staffIdentity:staffIdentity||''}});
+  activeCall.on('accept',function(){
+    callStates[id]={mode:'connected',seconds:0};
+    refreshCallWidget(id);
+    callTimers[id]=setInterval(function(){
+      if(callStates[id])callStates[id].seconds=(callStates[id].seconds||0)+1;
+      refreshCallWidget(id);
+    },1000);
+  });
+  activeCall.on('disconnect',function(){endCallUI(id);});
+  activeCall.on('cancel',function(){endCallUI(id);});
+  activeCall.on('error',function(err){
+    console.error('Call error:',err);
+    toast('Call failed: '+(err.message||'unknown error'));
+    endCallUI(id);
+  });
+}
+
+function hangupCall(id){
+  if(activeCall)activeCall.disconnect();
+}
+
+function endCallUI(id){
+  var wasConnected=callStates[id]&&callStates[id].mode==='connected';
+  var duration=(callStates[id]&&callStates[id].seconds)||0;
+  if(callTimers[id]){clearInterval(callTimers[id]);delete callTimers[id];}
+  callStates[id]={mode:'idle'};
+  refreshCallWidget(id);
+  if(activeCallListingId===id){activeCall=null;activeCallListingId=null;}
+  if(wasConnected)toast('Call ended — '+formatCallDuration(duration));
+}
 
 function daysAgo(n){var d=new Date();d.setDate(d.getDate()-n);return d.toISOString().split('T')[0];}
 
@@ -1460,6 +1513,7 @@ function render(){
           +'</td>';
       }()):'')+
       '<td class="action-cell" onclick="event.stopPropagation()">'+
+        '<span id="callwidget-'+l.id+'">'+renderCallWidget(l)+'</span>'+
         (l.url?'<a href="'+l.url+'" target="_blank" style="color:var(--blue);font-size:11px;margin-right:4px" title="View listing">↗</a>':'')+
         '<button class="act score" onclick="scoreOneRow(\''+l.id+'\')" title="Run macro score">⚡</button>'+
         (curTab==='inbox'
@@ -1601,7 +1655,13 @@ function buildScratchCheckDetailBlock(l){
     +'</div>';
   return html;
 }
-function buildScoreBlock(l){
+function showDetail(id){
+  closeDetail();
+  var l=listings.find(function(x){return x.id===id;});
+  if(!l)return;
+  var p=document.createElement('div');
+  p.id='dp';
+  p.style.cssText='position:fixed;right:0;top:0;width:380px;height:100vh;background:white;box-shadow:-4px 0 24px rgba(0,0,0,.15);z-index:1000;overflow-y:auto;padding:0;font-family:inherit;';
   var SIGS=[
     {key:'professionals',label:'Professionals',bench:66,sfx:'%',wt:'30%'},
     {key:'abs_professionals',label:'Professional population',bench:7100,sfx:'',wt:'15%',isInt:true},
@@ -1630,16 +1690,24 @@ function buildScoreBlock(l){
   }).join('');
   var mc=l.macro>=4?'#2d6b0a':l.macro>=3?'#854F0B':'#8b2020';
   var mb=l.macro>=4?'#e8f5d6':l.macro>=3?'#fef3e2':'#fceaea';
-  var inner='';
-  if(l.combined!=null){
-    var cc=l.combined>=4?'#2d6b0a':l.combined>=3?'#854F0B':'#8b2020';
-    var cb=l.combined>=4?'#e8f5d6':l.combined>=3?'#fef3e2':'#fceaea';
-    inner+='<div style="background:'+cb+';border-radius:8px;padding:12px 14px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between">'
-      +'<span style="font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:'+cc+'">Combined score</span>'
-      +'<span style="font-size:22px;font-weight:800;color:'+cc+'">'+l.combined+'<span style="font-size:12px;opacity:.6">/5</span></span>'
-      +'</div>';
-  }
-  inner+='<div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#888;margin-bottom:8px">Macro score</div>';
+  var inner='<div style="background:#1C3A0E;padding:16px 20px;color:white">'
+    +'<div style="display:flex;justify-content:space-between;align-items:flex-start">'
+    +'<div style="font-size:15px;font-weight:700;flex:1;margin-right:8px">'+l.addr+'</div>'
+    +'<button id="dp-close" style="background:rgba(255,255,255,.2);border:none;color:white;width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:16px;flex-shrink:0">✕</button>'
+    +'</div>'
+    +'<div style="font-size:11px;opacity:.7;margin-top:4px">'+l.area+' · '+l.postcode+'</div>'
+    +'</div>'
+    +'<div style="padding:16px 20px">'
+    +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px">'
+    +(l.size?'<div style="background:#f5f4f0;border-radius:6px;padding:10px;text-align:center"><div style="font-size:16px;font-weight:700">'+l.size.toLocaleString()+'</div><div style="font-size:10px;color:#888">sqft</div></div>':'')
+    +(l.price?'<div style="background:#f5f4f0;border-radius:6px;padding:10px;text-align:center"><div style="font-size:16px;font-weight:700">£'+l.price.toLocaleString()+'</div><div style="font-size:10px;color:#888">p.a.</div></div>':'')
+    +(l.price&&l.size?'<div style="background:#f5f4f0;border-radius:6px;padding:10px;text-align:center"><div style="font-size:16px;font-weight:700">£'+Math.round(l.price/l.size)+'</div><div style="font-size:10px;color:#888">£/sqft</div></div>':'')
+    +'</div>'
+    +(l.agent?'<div style="font-size:12px;color:#666;margin-bottom:8px">Agent: <strong>'+l.agent+'</strong></div>':'')
+    +(l.url?'<a href="'+l.url+'" target="_blank" style="display:inline-block;margin-bottom:16px;font-size:12px;color:#3B6D11;font-weight:600">View on Rightmove ↗</a><br>':'')
+    +(l.status==='enquiry'?buildEnquiryDetailBlock(l):'')
+    +(l.status==='scratch_check'?buildScratchCheckDetailBlock(l):'')
+    +'<div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#888;margin-bottom:8px;margin-top:8px">Macro score</div>';
   if(l.macro!=null){
     inner+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
       +'<span style="display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;background:'+mb+';color:'+mc+';font-size:18px;font-weight:700;flex-shrink:0">'+l.macro+'</span>'
@@ -1679,51 +1747,6 @@ function buildScoreBlock(l){
   }else{
     inner+='<div style="color:#888;font-size:12px;padding:12px;background:#f5f4f0;border-radius:6px;margin-bottom:16px">Not yet scored — scoring runs automatically, check back shortly</div>';
   }
-  return inner;
-}
-function buildActionHistoryBlock(l){
-  var hist=(l.action_history||[]).slice().reverse();
-  var inner='<div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#888;margin-bottom:8px">Action history</div>';
-  if(hist.length){
-    inner+='<div>'+hist.map(function(h){
-      return '<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid #f0ede6;font-size:12px">'
-        +'<span style="color:#333">'+h.text.replace(/</g,'&lt;')+'</span>'
-        +'<span style="color:#999;font-size:10px;white-space:nowrap;flex-shrink:0">'+fmtDate(h.date)+'</span>'
-        +'</div>';
-    }).join('')+'</div>';
-  }else{
-    inner+='<div style="color:#aaa;font-size:11px">No actions logged yet</div>';
-  }
-  return inner;
-}
-function showDetail(id){
-  closeDetail();
-  var l=listings.find(function(x){return x.id===id;});
-  if(!l)return;
-  var p=document.createElement('div');
-  p.id='dp';
-  p.style.cssText='position:fixed;right:0;top:0;width:380px;height:100vh;background:white;box-shadow:-4px 0 24px rgba(0,0,0,.15);z-index:1000;overflow-y:auto;padding:0;font-family:inherit;';
-  var md={};try{md=JSON.parse(l.macro_data||'{}');}catch(e){}
-  var mc=l.macro>=4?'#2d6b0a':l.macro>=3?'#854F0B':'#8b2020';
-  var mb=l.macro>=4?'#e8f5d6':l.macro>=3?'#fef3e2':'#fceaea';
-  var inner='<div style="background:#1C3A0E;padding:16px 20px;color:white">'
-    +'<div style="display:flex;justify-content:space-between;align-items:flex-start">'
-    +'<div style="font-size:15px;font-weight:700;flex:1;margin-right:8px">'+l.addr+'</div>'
-    +'<button id="dp-close" style="background:rgba(255,255,255,.2);border:none;color:white;width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:16px;flex-shrink:0">✕</button>'
-    +'</div>'
-    +'<div style="font-size:11px;opacity:.7;margin-top:4px">'+l.area+' · '+l.postcode+'</div>'
-    +'</div>'
-    +'<div style="padding:16px 20px">'
-    +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px">'
-    +(l.size?'<div style="background:#f5f4f0;border-radius:6px;padding:10px;text-align:center"><div style="font-size:16px;font-weight:700">'+l.size.toLocaleString()+'</div><div style="font-size:10px;color:#888">sqft</div></div>':'')
-    +(l.price?'<div style="background:#f5f4f0;border-radius:6px;padding:10px;text-align:center"><div style="font-size:16px;font-weight:700">£'+l.price.toLocaleString()+'</div><div style="font-size:10px;color:#888">p.a.</div></div>':'')
-    +(l.price&&l.size?'<div style="background:#f5f4f0;border-radius:6px;padding:10px;text-align:center"><div style="font-size:16px;font-weight:700">£'+Math.round(l.price/l.size)+'</div><div style="font-size:10px;color:#888">£/sqft</div></div>':'')
-    +'</div>'
-    +(l.agent?'<div style="font-size:12px;color:#666;margin-bottom:8px">Agent: <strong>'+l.agent+'</strong></div>':'')
-    +(l.url?'<a href="'+l.url+'" target="_blank" style="display:inline-block;margin-bottom:16px;font-size:12px;color:#3B6D11;font-weight:600">View on Rightmove ↗</a><br>':'')
-    +(l.status==='enquiry'?buildEnquiryDetailBlock(l):'')
-    +(l.status==='scratch_check'?buildScratchCheckDetailBlock(l):'')
-    +buildScoreBlock(l);
   var btnStyle='flex:1;padding:9px;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;';
   var hist=(l.action_history||[]).slice().reverse();
   inner+='<div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#888;margin-bottom:8px;margin-top:16px">Action history</div>';
