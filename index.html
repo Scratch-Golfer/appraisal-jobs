@@ -187,6 +187,7 @@ input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--bl
     <button onclick="s3CloseListing()" style="padding:6px 12px;font-size:12px;border:1px solid #ddd;border-radius:6px;background:#fff;cursor:pointer;margin-bottom:14px">← Back to list</button>
     <h2 id="s3-addr" style="font-size:16px;margin:0 0 4px"></h2>
     <div id="s3-sub" style="color:#6b6a65;font-size:12.5px;margin-bottom:12px"></div>
+    <div id="s3-callwidget" style="margin-bottom:12px" class="cw-target" data-lid=""></div>
     <div id="s3-info" style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:12.5px;color:#444;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px 20px"></div>
     <div id="s3-planner-wrap">
       <div class="pl-tb">
@@ -240,6 +241,7 @@ input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--bl
     <button onclick="s4CloseListing()" style="padding:6px 12px;font-size:12px;border:1px solid #ddd;border-radius:6px;background:#fff;cursor:pointer;margin-bottom:14px">← Back to list</button>
     <h2 id="s4-addr" style="font-size:16px;margin:0 0 4px"></h2>
     <div id="s4-sub" style="color:#6b6a65;font-size:12.5px;margin-bottom:16px"></div>
+    <div id="s4-callwidget" style="margin-bottom:12px" class="cw-target" data-lid=""></div>
     <div style="display:grid;grid-template-columns:1fr 380px;gap:20px">
       <div>
         <div style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:16px;margin-bottom:16px">
@@ -349,6 +351,8 @@ function s3OpenListing(id){
   document.getElementById('overlay-view-3').style.display='block';
   document.getElementById('s3-addr').textContent=l.addr||'—';
   document.getElementById('s3-sub').textContent=(l.best_rent_price?'£'+Number(l.best_rent_price).toLocaleString()+' p.a.':(l.price?'£'+Number(l.price).toLocaleString()+' p.a. (listed)':'Rent not set'))+(l.size?' · '+l.size+' sqft':'')+(l.size&&(l.best_rent_price||l.price)?' · £'+Math.round((l.best_rent_price||l.price)/l.size)+' /sqft':'');
+  document.getElementById('s3-callwidget').setAttribute('data-lid',id);
+  paintCallWidgets(id);
   var info=[];
   if(l.agent)info.push(['Agent',l.agent]);
   if(l.postcode)info.push(['Postcode',l.postcode]);
@@ -415,6 +419,8 @@ function s4OpenListing(id){
   document.getElementById('s4-addr').textContent=l.addr||'—';
   var rent=l.best_rent_price||l.price;
   document.getElementById('s4-sub').textContent=(rent?'£'+Number(rent).toLocaleString()+' p.a.':'Rent not set')+(l.size?' · '+l.size+' sqft':'')+(l.size&&rent?' · £'+Math.round(rent/l.size)+' /sqft':'');
+  document.getElementById('s4-callwidget').setAttribute('data-lid',id);
+  paintCallWidgets(id);
   var layout=l.bay_layout||null;
   var nb=l.expected_bays||(layout&&layout.bays?layout.bays.filter(function(b){return b.type!=='toilet';}).length:null);
   var nt=layout&&layout.bays?layout.bays.filter(function(b){return b.type==='toilet';}).length:0;
@@ -927,12 +933,21 @@ function renderCallWidget(l){
   return phoneLabel+icon;
 }
 
-function refreshCallUI(id){
-  var rowEl=document.getElementById('callwidget-'+id);
+// Renders into every element tagged with this listing's id, wherever it appears
+// (table row, Assess Floorplan header, Scratch Check header, etc.)
+function paintCallWidgets(id){
   var l=listings.find(function(x){return x.id===id;});
-  if(rowEl&&l)rowEl.innerHTML=renderCallWidget(l);
+  if(!l)return;
+  document.querySelectorAll('.cw-target[data-lid="'+id+'"]').forEach(function(el){
+    el.innerHTML=renderCallWidget(l);
+  });
+}
+
+function refreshCallUI(id){
+  paintCallWidgets(id);
   if(currentCallModalId===id){
     var statusEl=document.getElementById('call-modal-status');
+    var l=listings.find(function(x){return x.id===id;});
     if(statusEl&&l)statusEl.innerHTML=renderCallModalStatus(l);
   }
 }
@@ -953,6 +968,7 @@ function openCallModal(id){
   if(!l)return;
   closeCallModal(true);
   currentCallModalId=id;
+  modalOtherOpen[id]=false;
   var isFirstOpen=!callStates[id];
   if(!callStates[id])callStates[id]={mode:'idle'};
 
@@ -962,7 +978,7 @@ function openCallModal(id){
   overlay.onclick=function(e){if(e.target===overlay)closeCallModal();};
   var card=document.createElement('div');
   card.id='call-modal-card';
-  card.style.cssText='background:#fff;border-radius:10px;padding:20px;width:380px;max-width:90vw;max-height:85vh;overflow-y:auto;box-shadow:0 8px 30px rgba(0,0,0,.25);font-family:inherit';
+  card.style.cssText='background:#fff;border-radius:10px;padding:20px;width:460px;max-width:92vw;max-height:88vh;overflow-y:auto;box-shadow:0 8px 30px rgba(0,0,0,.25);font-family:inherit';
   card.innerHTML=renderCallModalHeader(l)
     +'<div id="call-modal-status">'+renderCallModalStatus(l)+'</div>'
     +renderCallModalInfo(l)
@@ -1050,7 +1066,7 @@ function renderCallModalInfo(l){
     '<span style="font-size:11px;padding:3px 8px;border-radius:5px;background:var(--bg);font-weight:600" title="Combined score">'+scoreLabel(l.combined)+'/5</span>'+
     '</div>';
   var linkRow=l.url?'<a href="'+l.url+'" target="_blank" style="display:inline-block;font-size:11px;color:var(--blue);font-weight:600;margin-bottom:10px">View listing ↗</a>':'';
-  var mapDiv='<div id="call-modal-minimap" style="height:140px;border-radius:6px;overflow:hidden;margin-bottom:10px;background:#eee"></div>';
+  var mapDiv='<div id="call-modal-minimap" style="height:260px;border-radius:6px;overflow:hidden;margin-bottom:10px;background:#eee"></div>';
   var notesArea='<div style="margin-bottom:14px">'+
     '<textarea placeholder="Any other detail from the call…" style="width:100%;min-height:50px;font-size:12px;font-family:inherit;border:1px solid var(--border);border-radius:6px;padding:6px;box-sizing:border-box" onblur="saveListingField(\''+l.id+'\',\'notes\',this.value)">'+(l.notes||'').replace(/</g,'&lt;')+'</textarea>'+
     '</div>';
@@ -1065,18 +1081,20 @@ function renderCallModalLastNote(l){
     '</div>';
 }
 
+var modalOtherOpen={};
+
 function renderCallModalLog(l){
-  var parsed=parseTodayAction(l);
+  var showOther=!!modalOtherOpen[l.id];
   return '<div>'+
     '<div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px">Log this call</div>'+
     '<select onchange="modalHandleTodayAction(\''+l.id+'\',this.value)" style="width:100%;font-size:12px;padding:5px 6px;border:1px solid var(--border);border-radius:5px;font-family:inherit;margin-bottom:6px;box-sizing:border-box">'+
       '<option value="">— select outcome —</option>'+
-      '<option value="no_answer"'+(parsed.code==='no_answer'?' selected':'')+'>Called - no answer</option>'+
-      '<option value="agent_emailing"'+(parsed.code==='agent_emailing'?' selected':'')+'>Called - Agent emailing</option>'+
-      '<option value="redirect"'+(parsed.code==='redirect'?' selected':'')+'>Called - took details to redirect</option>'+
-      '<option value="other"'+(parsed.code==='other'?' selected':'')+'>Other</option>'+
+      '<option value="no_answer">Called - no answer</option>'+
+      '<option value="agent_emailing">Called - Agent emailing</option>'+
+      '<option value="redirect">Called - took details to redirect</option>'+
+      '<option value="other">Other</option>'+
     '</select>'+
-    (parsed.code==='other'?'<input type="text" id="modal-otherinput-'+l.id+'" value="'+(parsed.text||'').replace(/"/g,'&quot;')+'" placeholder="Reason…" onblur="modalSaveOtherReason(\''+l.id+'\',this.value)" onkeydown="if(event.key===\'Enter\')this.blur()" style="width:100%;font-size:12px;padding:5px 6px;border:1px solid var(--border);border-radius:5px;font-family:inherit;box-sizing:border-box">':'')+
+    (showOther?'<input type="text" id="modal-otherinput-'+l.id+'" value="" placeholder="Reason…" onblur="modalSaveOtherReason(\''+l.id+'\',this.value)" onkeydown="if(event.key===\'Enter\')this.blur()" style="width:100%;font-size:12px;padding:5px 6px;border:1px solid var(--border);border-radius:5px;font-family:inherit;box-sizing:border-box">':'')+
     '</div>';
 }
 
@@ -1096,9 +1114,9 @@ async function modalSaveAgentPhoneAndCall(id){
 function modalHandleTodayAction(id,code){
   var l=listings.find(function(x){return x.id===id;});
   if(!l||!code)return;
-  if(code==='other'){pendingOther[id]=true;refreshCallModalLog(id);return;}
-  pendingOther[id]=false;
-  logTodayAction(l,ACTION_LABELS[code]).then(function(){refreshCallModalLog(id);});
+  if(code==='other'){modalOtherOpen[id]=true;refreshCallModalLog(id);return;}
+  modalOtherOpen[id]=false;
+  logTodayAction(l,ACTION_LABELS[code]).then(function(){toast('Logged');refreshCallModalLog(id);});
 }
 
 function modalSaveOtherReason(id,val){
@@ -1106,8 +1124,8 @@ function modalSaveOtherReason(id,val){
   if(!l)return;
   var trimmed=(val||'').trim();
   if(!trimmed)return;
-  pendingOther[id]=false;
-  logTodayAction(l,'Other: '+trimmed).then(function(){refreshCallModalLog(id);});
+  modalOtherOpen[id]=false;
+  logTodayAction(l,'Other: '+trimmed).then(function(){toast('Logged');refreshCallModalLog(id);});
 }
 
 async function placeCall(id,phone){
@@ -1727,7 +1745,7 @@ function render(){
           +'</td>';
       }()):'')+
       '<td class="action-cell" onclick="event.stopPropagation()">'+
-        '<span id="callwidget-'+l.id+'">'+renderCallWidget(l)+'</span>'+
+        '<span class="cw-target" data-lid="'+l.id+'">'+renderCallWidget(l)+'</span>'+
         (l.url?'<a href="'+l.url+'" target="_blank" style="color:var(--blue);font-size:11px;margin-right:4px" title="View listing">↗</a>':'')+
         '<button class="act score" onclick="scoreOneRow(\''+l.id+'\')" title="Run macro score">⚡</button>'+
         (curTab==='inbox'
