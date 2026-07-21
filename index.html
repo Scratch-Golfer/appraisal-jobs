@@ -183,8 +183,6 @@ input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--bl
 </div>
 <div id="overlay-view-3" style="display:none;position:fixed;top:44px;left:0;right:0;bottom:0;background:#f7f6f3;z-index:900;overflow-y:auto;padding:24px">
   <div id="s3-list-mode">
-    <h2 style="font-size:17px;margin:0 0 4px">Assess floorplan</h2>
-    <div style="color:#6b6a65;font-size:12.5px;margin-bottom:20px">Set scale, place bays and toilets, check cost per bay.</div>
     <div id="s3-list" style="display:flex;flex-direction:column;gap:1px;background:#e8e7e2;border:1px solid #e8e7e2;border-radius:12px;overflow:hidden;max-width:900px"></div>
   </div>
   <div id="s3-planner-mode" style="display:none;max-width:900px">
@@ -280,7 +278,7 @@ function s3Render(){
   if(!rows.length){el.innerHTML='<div style="padding:40px;text-align:center;color:#9b9a95;background:#fff">Nothing waiting on floorplan assessment.</div>';return;}
   el.innerHTML=rows.map(function(l){
     return '<div style="background:#fff;display:flex;align-items:center;gap:14px;padding:14px 20px;cursor:pointer" onclick="s3OpenListing(\''+l.id+'\')">'
-      +'<div style="flex:1"><div style="font-weight:600;font-size:14px">'+(l.address||'—')+'</div>'
+      +'<div style="flex:1"><div style="font-weight:600;font-size:14px">'+(l.addr||'—')+'</div>'
       +'<div style="color:#6b6a65;font-size:12px;margin-top:2px">'+(l.best_rent_price?'£'+Number(l.best_rent_price).toLocaleString()+' p.a.':'Rent not set')+(l.size?' · '+l.size+' sqft':'')+'</div></div>'
       +(l.floorplan_url?'<span style="font-size:11px;color:#3B6D11;font-weight:600">Floorplan ✓</span>':'<span style="font-size:11px;color:#A32D2D">No floorplan</span>')
       +'</div>';
@@ -292,7 +290,7 @@ function s3OpenListing(id){
   s3CurListing=l;
   document.getElementById('s3-list-mode').style.display='none';
   document.getElementById('s3-planner-mode').style.display='block';
-  document.getElementById('s3-addr').textContent=l.address||'—';
+  document.getElementById('s3-addr').textContent=l.addr||'—';
   document.getElementById('s3-sub').textContent=(l.best_rent_price?'£'+Number(l.best_rent_price).toLocaleString()+' p.a.':'Rent not set')+(l.size?' · '+l.size+' sqft':'');
   s3PlReset();
   if(l.floorplan_url){
