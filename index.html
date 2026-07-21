@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://sdk.twilio.com/js/voice/releases/2.11.1/twilio.min.js"></script>
 <script src="macro-scoring.js"></script>
 <script src="micro-scoring.js"></script>
 <style>
@@ -813,6 +814,35 @@ var SUPABASE_URL='https://mfhcqxquzjknzifjebvu.supabase.co';
 var SUPABASE_ANON_KEY='sb_publishable_HYuBeJEs2OuKiIUOym5Fbw_55TfnxAH';
 var db=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
 var EDGE_FN=SUPABASE_URL+'/functions/v1/hyper-worker';
+
+var TWILIO_TOKEN_FN=SUPABASE_URL+'/functions/v1/twilio-token';
+var twilioDevice=null;
+var activeCall=null;
+var staffIdentity=null;
+
+async function initTwilioDevice(){
+  try{
+    var resp=await fetch(TWILIO_TOKEN_FN,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({})
+    });
+    var data=await resp.json();
+    if(!data.token){console.error('No token returned from twilio-token function',data);return;}
+    staffIdentity=data.identity;
+    twilioDevice=new Twilio.Device(data.token,{
+      logLevel:'error',
+      codecPreferences:['opus','pcmu']
+    });
+    twilioDevice.on('error',function(err){console.error('Twilio Device error:',err);});
+    twilioDevice.on('registered',function(){console.log('Twilio Device ready as',staffIdentity);});
+    await twilioDevice.register();
+  }catch(err){
+    console.error('Failed to initialize Twilio Device:',err);
+  }
+}
+
+initTwilioDevice();
 
 function daysAgo(n){var d=new Date();d.setDate(d.getDate()-n);return d.toISOString().split('T')[0];}
 
