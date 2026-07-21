@@ -127,6 +127,36 @@ input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--bl
 .empty{text-align:center;padding:48px 24px;color:var(--text2)}
 #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--text);color:#fff;font-size:12px;padding:7px 16px;border-radius:var(--radius);opacity:0;transition:opacity .2s;pointer-events:none;z-index:9999;white-space:nowrap}
 #toast.show{opacity:1}
+/* Stage 3 — bay planner, copied verbatim from agent appraisal tool */
+#s3-planner-wrap{max-width:900px;}
+.pl-tb{display:flex;align-items:center;flex-wrap:wrap;gap:5px;padding-bottom:10px;border-bottom:1px solid #eee;margin-bottom:10px;}
+.pb{padding:5px 11px;font-size:12px;font-weight:500;border:1px solid #ddd;border-radius:6px;cursor:pointer;background:#fff;color:#1a1a1a;font-family:inherit;white-space:nowrap;}
+.pb:hover{background:#f5f5f2;}
+.pb.ag{background:#3B6D11;color:#EAF3DE;border-color:#3B6D11;}
+.pb.aa{background:#854F0B;color:#FAEEDA;border-color:#854F0B;}
+.pb.ar{background:#A32D2D;color:#FCEBEB;border-color:#A32D2D;}
+.pb.at{background:#E6F1FB;color:#185FA5;border-color:#B5D4F4;}
+.pb.at.sel{background:#185FA5;color:#fff;border-color:#185FA5;}
+.pb:disabled{opacity:.3;cursor:default;}
+.psep{width:1px;height:20px;background:#e5e5e0;margin:0 2px;flex-shrink:0;}
+.pi{font-size:11px;color:#888;font-family:monospace;white-space:nowrap;}
+#s3-ang{width:52px;padding:4px 6px;font-size:12px;font-family:monospace;border:1px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;text-align:center;outline:none;}
+#s3-ang:disabled{opacity:.3;}
+.pl-cw{position:relative;background:#f5f5f2;border:1px solid #e8e8e3;border-radius:8px;display:flex;align-items:center;justify-content:center;min-height:300px;overflow:hidden;user-select:none;}
+#s3-pl-cv{display:block;cursor:crosshair;}
+.pl-st{display:flex;justify-content:space-between;padding:6px 0 0;font-size:11px;color:#888;font-family:monospace;border-top:1px solid #eee;margin-top:6px;flex-wrap:wrap;gap:4px;}
+#s3-scdlg{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;background:#fff;border:1px solid #ccc;border-radius:10px;padding:20px;min-width:260px;box-shadow:0 8px 32px rgba(0,0,0,.2);}
+#s3-scdlg h3{font-size:14px;font-weight:600;margin-bottom:6px;}
+#s3-scdlg p{font-size:12px;color:#666;margin-bottom:12px;}
+#s3-scinp{display:block;width:100%;margin-bottom:12px;text-align:center;font-size:20px;padding:8px;border:1px solid #ddd;border-radius:6px;font-family:monospace;outline:none;}
+#s3-scinp:focus{border-color:#3B6D11;}
+.scbtns{display:flex;gap:8px;}
+.scok{flex:1;padding:8px;font-size:13px;font-weight:600;background:#3B6D11;color:#fff;border:none;border-radius:6px;cursor:pointer;font-family:inherit;}
+.sccx{flex:1;padding:8px;font-size:13px;background:#fff;border:1px solid #ddd;border-radius:6px;cursor:pointer;font-family:inherit;}
+.bay-summary{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;}
+.bay-chip{border-radius:6px;padding:5px 10px;font-weight:600;font-size:12px;}
+.bay-chip.green{background:#f0f7e8;border:1px solid #c7e5a3;color:#3B6D11;}
+.bay-chip.blue{background:#E6F1FB;border:1px solid #B5D4F4;color:#185FA5;}
 </style>
 </head>
 <body>
@@ -151,14 +181,68 @@ input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--bl
 <div id="overlay-placeholder" style="display:none;position:fixed;top:44px;left:0;right:0;bottom:0;background:#f7f6f3;z-index:900;overflow-y:auto;padding:24px;text-align:center;color:#6b6a65">
   <div style="padding-top:100px"><div style="font-size:13.5px;color:#1a1a18;margin-bottom:4px;font-weight:600">Coming soon</div>Built next.</div>
 </div>
+<div id="overlay-view-3" style="display:none;position:fixed;top:44px;left:0;right:0;bottom:0;background:#f7f6f3;z-index:900;overflow-y:auto;padding:24px">
+  <div id="s3-list-mode">
+    <h2 style="font-size:17px;margin:0 0 4px">Assess floorplan</h2>
+    <div style="color:#6b6a65;font-size:12.5px;margin-bottom:20px">Set scale, place bays and toilets, check cost per bay.</div>
+    <div id="s3-list" style="display:flex;flex-direction:column;gap:1px;background:#e8e7e2;border:1px solid #e8e7e2;border-radius:12px;overflow:hidden;max-width:900px"></div>
+  </div>
+  <div id="s3-planner-mode" style="display:none;max-width:900px">
+    <button onclick="s3CloseListing()" style="padding:6px 12px;font-size:12px;border:1px solid #ddd;border-radius:6px;background:#fff;cursor:pointer;margin-bottom:14px">← Back to list</button>
+    <h2 id="s3-addr" style="font-size:16px;margin:0 0 4px"></h2>
+    <div id="s3-sub" style="color:#6b6a65;font-size:12.5px;margin-bottom:16px"></div>
+    <div id="s3-planner-wrap">
+      <div class="pl-tb">
+        <button class="pb aa" id="s3-pb-cal">Set scale</button>
+        <span class="pi" id="s3-pb-slbl">no scale</span>
+        <div class="psep"></div>
+        <button class="pb ag" id="s3-pb-place">Place bay</button>
+        <button class="pb at" id="s3-pb-toilet">+ Toilet</button>
+        <button class="pb" id="s3-pb-flip" disabled>Flip</button>
+        <button class="pb" id="s3-pb-rst" disabled>Reset rotation</button>
+        <button class="pb ar" id="s3-pb-del" disabled>Delete</button>
+        <div class="psep"></div>
+        <span class="pi">angle</span><input type="number" id="s3-ang" step="1" placeholder="0" disabled><span class="pi">deg</span>
+        <div class="psep"></div>
+        <button class="pb" id="s3-pb-ori">New: portrait</button>
+        <button class="pb" id="s3-pb-undo">Undo</button>
+        <button class="pb" id="s3-pb-clear">Clear all</button>
+        <div class="psep"></div>
+        <span class="pi" id="s3-pb-blbl">0 bays</span>
+      </div>
+      <div class="pl-cw" id="s3-pl-cw">
+        <canvas id="s3-pl-cv"></canvas>
+        <div id="s3-scdlg">
+          <h3>Set scale</h3>
+          <p>Real-world distance between the two points (metres)?</p>
+          <input type="number" id="s3-scinp" min="0.1" step="0.1" placeholder="e.g. 10">
+          <div class="scbtns"><button class="scok" id="s3-sc-ok">Confirm</button><button class="sccx" id="s3-sc-cx">Cancel</button></div>
+        </div>
+      </div>
+      <div class="pl-st"><span id="s3-pl-stl">Set scale first, then click to place bays</span><span>drag handle to rotate · shift = snap 5°</span></div>
+      <div class="bay-summary" id="s3-bay-summary" style="display:none"></div>
+    </div>
+    <div id="s3-cost-wrap" style="margin-top:16px;background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:14px 16px;display:none">
+      <div style="font-size:11px;color:#999;font-weight:600;letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px">Cost per bay</div>
+      <div id="s3-cpb" style="font-size:22px;font-weight:700;color:#1a1a18"></div>
+      <div id="s3-cpb-sub" style="font-size:11.5px;color:#999;margin-top:2px"></div>
+    </div>
+    <div style="margin-top:18px;display:flex;gap:10px">
+      <button onclick="s3Pass()" style="padding:10px 20px;font-size:13px;font-weight:600;background:#1C3A0E;color:#fff;border:none;border-radius:8px;cursor:pointer">✓ Pass → Scratch Check</button>
+      <button onclick="s3Reject()" style="padding:10px 20px;font-size:13px;font-weight:600;background:#fff;color:#A32D2D;border:1px solid #e0b3b3;border-radius:8px;cursor:pointer">✗ Reject</button>
+    </div>
+  </div>
+</div>
 <script>
 function switchStageView(view){
   document.querySelectorAll(".sitenav a").forEach(function(a){ a.classList.toggle("active", a.dataset.view === view); });
   document.getElementById("overlay-home").style.display = view === "home" ? "block" : "none";
-  document.getElementById("overlay-placeholder").style.display = (view !== "home" && view !== "1" && view !== "2") ? "block" : "none";
+  document.getElementById("overlay-view-3").style.display = view === "3" ? "block" : "none";
+  document.getElementById("overlay-placeholder").style.display = (view !== "home" && view !== "1" && view !== "2" && view !== "3") ? "block" : "none";
   if (view === "home") renderStageGridSummary();
   if (view === "1") switchTab("inbox");
   if (view === "2") switchTab("enquiry");
+  if (view === "3") s3Render();
 }
 function renderStageGridSummary(){
   var meta = [
@@ -170,12 +254,13 @@ function renderStageGridSummary(){
   ];
   var stage1Count = listings.filter(function(l){ return l.status === "inbox"; }).length;
   var stage2Count = listings.filter(function(l){ return l.status === "enquiry"; }).length;
+  var stage3Count = listings.filter(function(l){ return l.status === "floorplan_review"; }).length;
   var grid = document.getElementById("stagegrid");
   var rows = "";
   for (var i=0; i<meta.length; i++){
     var st = meta[i];
-    var c = st.n === 1 ? stage1Count : st.n === 2 ? stage2Count : 0;
-    var built = st.n === 1 || st.n === 2;
+    var c = st.n === 1 ? stage1Count : st.n === 2 ? stage2Count : st.n === 3 ? stage3Count : 0;
+    var built = st.n === 1 || st.n === 2 || st.n === 3;
     rows += '<div style="background:#fff;display:flex;align-items:center;gap:18px;padding:16px 20px;' + (built?"cursor:pointer":"opacity:.45") + '"' + (built?' onclick="switchStageView(\''+st.n+'\')"':'') + '>'
       + '<div style="font-weight:700;font-size:20px;color:#9b9a95;width:26px">' + String(st.n).padStart(2,"0") + '</div>'
       + '<div style="flex:1"><div style="font-weight:600;font-size:14px">' + st.title + '</div><div style="color:#6b6a65;font-size:12px;margin-top:2px">' + st.desc + '</div></div>'
@@ -184,6 +269,262 @@ function renderStageGridSummary(){
   }
   grid.innerHTML = rows;
 }
+</script>
+
+// ── Stage 3: Assess Floorplan — list ──────────────────────────────────────
+var s3CurListing=null;
+function s3Render(){
+  var rows=listings.filter(function(l){return l.status==='floorplan_review';});
+  var el=document.getElementById('s3-list');
+  if(!rows.length){el.innerHTML='<div style="padding:40px;text-align:center;color:#9b9a95;background:#fff">Nothing waiting on floorplan assessment.</div>';return;}
+  el.innerHTML=rows.map(function(l){
+    return '<div style="background:#fff;display:flex;align-items:center;gap:14px;padding:14px 20px;cursor:pointer" onclick="s3OpenListing(\''+l.id+'\')">'
+      +'<div style="flex:1"><div style="font-weight:600;font-size:14px">'+(l.address||'—')+'</div>'
+      +'<div style="color:#6b6a65;font-size:12px;margin-top:2px">'+(l.best_rent_price?'£'+Number(l.best_rent_price).toLocaleString()+' p.a.':'Rent not set')+(l.size?' · '+l.size+' sqft':'')+'</div></div>'
+      +(l.floorplan_url?'<span style="font-size:11px;color:#3B6D11;font-weight:600">Floorplan ✓</span>':'<span style="font-size:11px;color:#A32D2D">No floorplan</span>')
+      +'</div>';
+  }).join('');
+}
+function s3OpenListing(id){
+  var l=listings.find(function(x){return x.id===id;});
+  if(!l)return;
+  s3CurListing=l;
+  document.getElementById('s3-list-mode').style.display='none';
+  document.getElementById('s3-planner-mode').style.display='block';
+  document.getElementById('s3-addr').textContent=l.address||'—';
+  document.getElementById('s3-sub').textContent=(l.best_rent_price?'£'+Number(l.best_rent_price).toLocaleString()+' p.a.':'Rent not set')+(l.size?' · '+l.size+' sqft':'');
+  s3PlReset();
+  if(l.floorplan_url){
+    var img=new Image();
+    img.crossOrigin='anonymous';
+    img.onload=function(){s3PlLoad(img);};
+    img.onerror=function(){document.getElementById('s3-pl-stl').textContent='Could not load the floorplan image.';};
+    img.src=l.floorplan_url;
+  }else{
+    document.getElementById('s3-pl-stl').textContent='No floorplan uploaded for this listing.';
+  }
+}
+function s3CloseListing(){
+  s3CurListing=null;
+  document.getElementById('s3-planner-mode').style.display='none';
+  document.getElementById('s3-list-mode').style.display='block';
+  s3Render();
+}
+async function s3Pass(){
+  if(!s3CurListing)return;
+  var nb=s3BayCount();
+  if(s3ppm&&s3CurListing._dbId){
+    await db.from('listings').update({bay_layout:{bays:s3bays,ppm:s3ppm},expected_bays:nb||null,status:'scratch_check'}).eq('id',s3CurListing._dbId);
+  }else if(s3CurListing._dbId){
+    await db.from('listings').update({status:'scratch_check'}).eq('id',s3CurListing._dbId);
+  }
+  s3CurListing.status='scratch_check';
+  toast('✓ Passed → Scratch Check');
+  s3CloseListing();
+}
+async function s3Reject(){
+  if(!s3CurListing)return;
+  if(s3CurListing._dbId)await db.from('listings').update({status:'rejected'}).eq('id',s3CurListing._dbId);
+  s3CurListing.status='rejected';
+  toast('Rejected');
+  s3CloseListing();
+}
+
+// ── Stage 3: Bay planner — copied verbatim from agent appraisal tool, s3-namespaced ──
+var s3cv=document.getElementById('s3-pl-cv'),s3ctx=s3cv.getContext('2d'),s3pcw=document.getElementById('s3-pl-cw');
+var S3_BW=5.0,S3_BD=6.5;   // bay metres
+var S3_TW=2.3,S3_TD=1.6;   // toilet metres
+var s3plImg=null,s3ppm=null,s3bays=[],s3sel=-1,s3defRot=false,s3plMode='normal',s3calPts=[];
+var s3mpd=null,s3mouse={x:0,y:0,inside:false};
+var s3nextType='bay';
+
+function s3lw(){return Math.max(2,s3cv.width/500);}
+function s3dims(b){
+  if(b.type==='toilet')return{w:s3ppm*(b.r?S3_TD:S3_TW),h:s3ppm*(b.r?S3_TW:S3_TD)};
+  return{w:s3ppm*(b.r?S3_BD:S3_BW),h:s3ppm*(b.r?S3_BW:S3_BD)};
+}
+function s3hitB(px,py,b){var d=s3dims(b),dx=px-b.cx,dy=py-b.cy,c=Math.cos(-b.a),ss=Math.sin(-b.a);return Math.abs(dx*c-dy*ss)<=d.w/2&&Math.abs(dx*ss+dy*c)<=d.h/2;}
+function s3rhP(b){var h=s3dims(b).h,d=h/2+Math.max(s3lw()*12,s3cv.height*.04);return{x:b.cx+d*Math.sin(b.a),y:b.cy-d*Math.cos(b.a),r:Math.max(s3lw()*6,s3cv.width/130)};}
+function s3hitRH(px,py,b){var h=s3rhP(b);return Math.hypot(px-h.x,py-h.y)<=h.r*1.8;}
+function s3topB(x,y){for(var i=s3bays.length-1;i>=0;i--)if(s3hitB(x,y,s3bays[i]))return i;return -1;}
+function s3ndeg(a){var d=a*180/Math.PI;d=((d%360)+360)%360;return d>180?d-360:d;}
+function s3BayCount(){return s3bays.filter(function(b){return b.type!=='toilet';}).length;}
+function s3ToiCount(){return s3bays.filter(function(b){return b.type==='toilet';}).length;}
+
+function s3draw(){
+  s3ctx.clearRect(0,0,s3cv.width,s3cv.height);
+  if(!s3plImg)return;
+  s3ctx.drawImage(s3plImg,0,0,s3cv.width,s3cv.height);
+  if(s3calPts.length>0){
+    s3ctx.save();s3ctx.strokeStyle='#EF9F27';s3ctx.lineWidth=s3lw()*1.5;s3ctx.setLineDash([8,5]);
+    var p0=s3calPts[0],p1=s3calPts[1]||(s3plMode==='calib'?s3mouse:null);
+    if(p1){s3ctx.beginPath();s3ctx.moveTo(p0.x,p0.y);s3ctx.lineTo(p1.x,p1.y);s3ctx.stroke();}
+    s3calPts.forEach(function(p){s3ctx.beginPath();s3ctx.arc(p.x,p.y,s3lw()*4,0,Math.PI*2);s3ctx.fillStyle='#EF9F27';s3ctx.fill();});
+    s3ctx.setLineDash([]);s3ctx.restore();
+  }
+  s3bays.forEach(function(b,i){
+    var d=s3dims(b),s=(i===s3sel),L=s3lw(),isBay=(b.type!=='toilet');
+    s3ctx.save();s3ctx.translate(b.cx,b.cy);s3ctx.rotate(b.a);
+    s3ctx.fillStyle=s?(isBay?'rgba(192,221,151,.3)':'rgba(182,220,240,.35)'):(isBay?'rgba(99,153,34,.22)':'rgba(24,95,165,.18)');
+    s3ctx.fillRect(-d.w/2,-d.h/2,d.w,d.h);
+    s3ctx.strokeStyle=s?(isBay?'#C0DD97':'#7AC3E8'):(isBay?'#639922':'#185FA5');
+    s3ctx.lineWidth=s?L*2.5:L*1.5;s3ctx.strokeRect(-d.w/2,-d.h/2,d.w,d.h);
+    if(isBay){
+      var bn=0;for(var j=0;j<i;j++)if(s3bays[j].type!=='toilet')bn++;
+      var fs=Math.max(14,Math.min(d.w/4,d.h/3,60));
+      s3ctx.fillStyle=s?'#EAF3DE':'#27500A';s3ctx.font='600 '+fs+'px sans-serif';
+      s3ctx.textAlign='center';s3ctx.textBaseline='middle';s3ctx.fillText(bn+1,0,0);
+    }else{
+      var fs2=Math.max(10,Math.min(d.w*.6,d.h*.85,36));
+      s3ctx.font=fs2+'px sans-serif';s3ctx.textAlign='center';s3ctx.textBaseline='middle';s3ctx.fillText('\uD83D\uDEB9',0,0);
+    }
+    s3ctx.restore();
+    if(s){
+      var rh=s3rhP(b),tcx=b.cx+(d.h/2)*Math.sin(b.a),tcy=b.cy-(d.h/2)*Math.cos(b.a);
+      s3ctx.save();s3ctx.strokeStyle='rgba(192,221,151,.55)';s3ctx.lineWidth=s3lw();s3ctx.setLineDash([5,4]);
+      s3ctx.beginPath();s3ctx.moveTo(tcx,tcy);s3ctx.lineTo(rh.x,rh.y);s3ctx.stroke();s3ctx.setLineDash([]);
+      s3ctx.beginPath();s3ctx.arc(rh.x,rh.y,rh.r,0,Math.PI*2);
+      s3ctx.fillStyle=isBay?'#3B6D11':'#185FA5';s3ctx.fill();
+      s3ctx.strokeStyle=isBay?'#C0DD97':'#7AC3E8';s3ctx.lineWidth=s3lw()*1.5;s3ctx.stroke();
+      s3ctx.fillStyle='#EAF3DE';s3ctx.font='600 '+Math.max(10,rh.r*1.1)+'px sans-serif';
+      s3ctx.textAlign='center';s3ctx.textBaseline='middle';s3ctx.fillText('\u21bb',rh.x,rh.y+rh.r*.05);
+      s3ctx.restore();
+    }
+  });
+  if(s3plMode==='normal'&&s3ppm&&s3mouse.inside&&s3topB(s3mouse.x,s3mouse.y)===-1&&!(s3sel!==-1&&s3hitRH(s3mouse.x,s3mouse.y,s3bays[s3sel]))){
+    var gw,gh;
+    if(s3nextType==='toilet'){gw=s3ppm*(s3defRot?S3_TD:S3_TW);gh=s3ppm*(s3defRot?S3_TW:S3_TD);}
+    else{gw=s3ppm*(s3defRot?S3_BD:S3_BW);gh=s3ppm*(s3defRot?S3_BW:S3_BD);}
+    s3ctx.save();
+    s3ctx.fillStyle=s3nextType==='toilet'?'rgba(24,95,165,.1)':'rgba(99,153,34,.1)';
+    s3ctx.fillRect(s3mouse.x-gw/2,s3mouse.y-gh/2,gw,gh);
+    s3ctx.strokeStyle=s3nextType==='toilet'?'rgba(24,95,165,.45)':'rgba(99,153,34,.45)';
+    s3ctx.lineWidth=s3lw();s3ctx.setLineDash([8,5]);
+    s3ctx.strokeRect(s3mouse.x-gw/2,s3mouse.y-gh/2,gw,gh);s3ctx.setLineDash([]);s3ctx.restore();
+  }
+}
+
+function s3plUI(){
+  var nb=s3BayCount(),nt=s3ToiCount(),s=s3sel!==-1&&s3sel<s3bays.length;
+  document.getElementById('s3-pb-blbl').textContent=nb+(nb===1?' bay':' bays')+(nt>0?' \u00b7 '+nt+(nt===1?' toilet':' toilets'):'');
+  document.getElementById('s3-pb-flip').disabled=!s;document.getElementById('s3-pb-rst').disabled=!s;document.getElementById('s3-pb-del').disabled=!s;
+  document.getElementById('s3-ang').disabled=!s;document.getElementById('s3-ang').value=s?Math.round(s3ndeg(s3bays[s3sel].a)):'';
+  document.getElementById('s3-pb-cal').className='pb'+(s3plMode==='calib'?' aa':'');
+  document.getElementById('s3-pb-place').className='pb'+(s3plMode==='normal'&&s3nextType==='bay'?' ag':'');
+  document.getElementById('s3-pb-toilet').className='pb at'+(s3plMode==='normal'&&s3nextType==='toilet'?' sel':'');
+  var bs=document.getElementById('s3-bay-summary');
+  if(nb>0||nt>0){
+    bs.style.display='flex';
+    bs.innerHTML=(nb>0?'<span class="bay-chip green">'+nb+(nb===1?' bay':' bays')+'</span>':'')
+               +(nt>0?'<span class="bay-chip blue">'+nt+(nt===1?' toilet':' toilets')+'</span>':'');
+  }else{bs.style.display='none';}
+  s3UpdateCPB(nb);
+}
+function s3UpdateCPB(nb){
+  var wrap=document.getElementById('s3-cost-wrap');
+  var rent=s3CurListing?(s3CurListing.best_rent_price||s3CurListing.price):null;
+  if(nb>0&&rent){
+    wrap.style.display='block';
+    document.getElementById('s3-cpb').textContent='£'+Math.round(rent/nb).toLocaleString('en-GB')+' p.a.';
+    document.getElementById('s3-cpb-sub').textContent='£'+Number(rent).toLocaleString('en-GB')+' rent \u00f7 '+nb+' '+(nb===1?'bay':'bays');
+  }else{
+    wrap.style.display='none';
+  }
+}
+
+function s3PlReset(){
+  s3plImg=null;s3ppm=null;s3bays=[];s3sel=-1;s3defRot=false;s3plMode='normal';s3nextType='bay';s3calPts=[];s3mpd=null;
+  s3ctx.clearRect(0,0,s3cv.width,s3cv.height);
+  document.getElementById('s3-pb-slbl').textContent='no scale';document.getElementById('s3-pb-blbl').textContent='0 bays';
+  document.getElementById('s3-pl-stl').textContent='Set scale first, then click to place bays';
+  document.getElementById('s3-scdlg').style.display='none';document.getElementById('s3-bay-summary').style.display='none';
+  document.getElementById('s3-cost-wrap').style.display='none';
+}
+
+function s3PlLoad(imgEl){
+  s3plImg=imgEl;
+  var MAX=8000,nw=imgEl.naturalWidth,nh=imgEl.naturalHeight;
+  if(nw>MAX){nh=Math.round(nh*MAX/nw);nw=MAX;}if(nh>MAX){nw=Math.round(nw*MAX/nh);nh=MAX;}
+  s3cv.width=nw;s3cv.height=nh;
+  var mxW=Math.max(300,s3pcw.clientWidth||700)-2,mxH=520,asp=nw/nh;
+  var dw=mxW,dh=dw/asp;if(dh>mxH){dh=mxH;dw=dh*asp;}
+  s3cv.style.width=Math.round(dw)+'px';s3cv.style.height=Math.round(dh)+'px';
+  var layout=s3CurListing&&s3CurListing.bay_layout?s3CurListing.bay_layout:null;
+  if(layout&&layout.bays&&Array.isArray(layout.bays)&&layout.bays.length>0){
+    s3bays=layout.bays;
+    if(layout.ppm&&layout.ppm>0){s3ppm=layout.ppm;document.getElementById('s3-pb-slbl').textContent='1m='+s3ppm.toFixed(1)+'px';}
+    document.getElementById('s3-pl-stl').textContent=s3ppm?'Bays and scale restored.':'Bays restored. Set scale to continue.';
+  }else{
+    document.getElementById('s3-pl-stl').textContent='Loaded. Click Set scale then place bays.';
+  }
+  s3plUI();s3draw();
+}
+
+document.getElementById('s3-pb-cal').addEventListener('click',function(){
+  if(!s3plImg)return;
+  s3plMode='calib';s3calPts=[];s3sel=-1;s3plUI();
+  document.getElementById('s3-pl-stl').textContent='Click two points with a known distance.';s3draw();
+});
+document.getElementById('s3-sc-ok').addEventListener('click',function(){
+  var d=parseFloat(document.getElementById('s3-scinp').value);if(!d||d<=0)return;
+  if(s3calPts.length<2){alert('Click two points on the plan first.');return;}
+  var dx=s3calPts[1].x-s3calPts[0].x,dy=s3calPts[1].y-s3calPts[0].y;
+  s3ppm=Math.hypot(dx,dy)/d;
+  document.getElementById('s3-pb-slbl').textContent='1m='+s3ppm.toFixed(1)+'px';
+  document.getElementById('s3-scdlg').style.display='none';s3calPts=[];s3plMode='normal';
+  document.getElementById('s3-pl-stl').textContent='Scale set. Click to place bays.';s3plUI();s3draw();
+});
+document.getElementById('s3-sc-cx').addEventListener('click',function(){document.getElementById('s3-scdlg').style.display='none';s3calPts=[];s3plMode='normal';s3plUI();s3draw();});
+document.getElementById('s3-pb-place').addEventListener('click',function(){s3nextType='bay';s3plMode='normal';s3plUI();s3draw();});
+document.getElementById('s3-pb-toilet').addEventListener('click',function(){s3nextType='toilet';s3plMode='normal';s3plUI();s3draw();});
+document.getElementById('s3-pb-flip').addEventListener('click',function(){if(s3sel!==-1){s3bays[s3sel].r=!s3bays[s3sel].r;s3plUI();s3draw();}});
+document.getElementById('s3-pb-rst').addEventListener('click',function(){if(s3sel!==-1){s3bays[s3sel].a=0;s3plUI();s3draw();}});
+document.getElementById('s3-pb-del').addEventListener('click',function(){if(s3sel!==-1){s3bays.splice(s3sel,1);s3sel=-1;s3plUI();s3draw();}});
+document.getElementById('s3-pb-ori').addEventListener('click',function(){s3defRot=!s3defRot;this.textContent='New: '+(s3defRot?'landscape':'portrait');s3draw();});
+document.getElementById('s3-pb-undo').addEventListener('click',function(){if(s3bays.length){s3bays.pop();if(s3sel>=s3bays.length)s3sel=-1;s3plUI();s3draw();}});
+document.getElementById('s3-pb-clear').addEventListener('click',function(){s3bays=[];s3sel=-1;s3plUI();s3draw();});
+document.getElementById('s3-ang').addEventListener('change',function(){if(s3sel===-1)return;var d=parseFloat(this.value);if(!isNaN(d)){s3bays[s3sel].a=d*Math.PI/180;s3draw();}});
+
+function s3ec(e){var r=s3cv.getBoundingClientRect();return{x:(e.clientX-r.left)*(s3cv.width/r.width),y:(e.clientY-r.top)*(s3cv.height/r.height)};}
+s3cv.addEventListener('mousedown',function(e){
+  if(!s3plImg)return;var p=s3ec(e),type='place',bi=-1;
+  if(s3plMode==='calib')type='calib';
+  else if(s3sel!==-1&&s3hitRH(p.x,p.y,s3bays[s3sel])){type='rot';bi=s3sel;}
+  else{bi=s3topB(p.x,p.y);type=bi!==-1?'move':'place';}
+  s3mpd={cx:e.clientX,cy:e.clientY,sx:p.x,sy:p.y,type:type,bi:bi,ox:bi!==-1?s3bays[bi].cx:0,oy:bi!==-1?s3bays[bi].cy:0,oa:bi!==-1?s3bays[bi].a:0,sma:bi!==-1?Math.atan2(p.y-s3bays[bi].cy,p.x-s3bays[bi].cx):0,moved:false};
+  e.preventDefault();
+});
+window.addEventListener('mousemove',function(e){
+  if(document.getElementById('overlay-view-3').style.display==='none')return;
+  var r=s3cv.getBoundingClientRect();
+  s3mouse.inside=e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom;
+  var c=s3ec(e);s3mouse.x=c.x;s3mouse.y=c.y;
+  if(s3mpd){
+    if(!s3mpd.moved&&Math.hypot(e.clientX-s3mpd.cx,e.clientY-s3mpd.cy)>4)s3mpd.moved=true;
+    if(s3mpd.moved){
+      if(s3mpd.type==='move'&&s3mpd.bi!==-1){s3bays[s3mpd.bi].cx=s3mpd.ox+(c.x-s3mpd.sx);s3bays[s3mpd.bi].cy=s3mpd.oy+(c.y-s3mpd.sy);s3cv.style.cursor='grabbing';}
+      else if(s3mpd.type==='rot'&&s3mpd.bi!==-1){var na=s3mpd.oa+(Math.atan2(c.y-s3bays[s3mpd.bi].cy,c.x-s3bays[s3mpd.bi].cx)-s3mpd.sma);if(e.shiftKey){var sn=5*Math.PI/180;na=Math.round(na/sn)*sn;}s3bays[s3mpd.bi].a=na;document.getElementById('s3-ang').value=Math.round(s3ndeg(s3bays[s3mpd.bi].a));s3cv.style.cursor='grabbing';}
+    }
+  }else{
+    if(s3sel!==-1&&s3sel<s3bays.length&&s3hitRH(s3mouse.x,s3mouse.y,s3bays[s3sel]))s3cv.style.cursor='grab';
+    else if(s3topB(s3mouse.x,s3mouse.y)!==-1)s3cv.style.cursor='grab';
+    else s3cv.style.cursor='crosshair';
+  }
+  s3draw();
+});
+window.addEventListener('mouseup',function(e){
+  if(!s3mpd)return;var c=s3ec(e),onC=(e.target===s3cv);
+  if(s3mpd.type==='calib'&&s3mouse.inside){
+    s3calPts.push({x:s3mpd.sx,y:s3mpd.sy});
+    if(s3calPts.length===2){document.getElementById('s3-scinp').value='';document.getElementById('s3-scdlg').style.display='block';setTimeout(function(){document.getElementById('s3-scinp').focus();},50);document.getElementById('s3-pl-stl').textContent='Enter the distance between the two points.';}
+    else{document.getElementById('s3-pl-stl').textContent='Good - now click a second point.';}
+  }else if(!s3mpd.moved&&onC){
+    if(s3mpd.type==='move'&&s3mpd.bi!==-1)s3sel=s3sel===s3mpd.bi?-1:s3mpd.bi;
+    else if(s3mpd.type==='place'){s3sel=-1;if(s3ppm)s3bays.push({type:s3nextType,cx:c.x,cy:c.y,r:s3defRot,a:0});else document.getElementById('s3-pl-stl').textContent='Set scale first.';}
+  }
+  s3plUI();s3mpd=null;s3cv.style.cursor='crosshair';s3draw();
+});
+s3cv.addEventListener('mouseleave',function(){s3mouse.inside=false;s3draw();});
 </script>
 
 <div class="topbar">
