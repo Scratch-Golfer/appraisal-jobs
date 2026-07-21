@@ -185,7 +185,8 @@ input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--bl
   <div id="s3-planner-mode" style="max-width:900px">
     <button onclick="s3CloseListing()" style="padding:6px 12px;font-size:12px;border:1px solid #ddd;border-radius:6px;background:#fff;cursor:pointer;margin-bottom:14px">← Back to list</button>
     <h2 id="s3-addr" style="font-size:16px;margin:0 0 4px"></h2>
-    <div id="s3-sub" style="color:#6b6a65;font-size:12.5px;margin-bottom:16px"></div>
+    <div id="s3-sub" style="color:#6b6a65;font-size:12.5px;margin-bottom:12px"></div>
+    <div id="s3-info" style="background:#fff;border:1px solid #e8e7e2;border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:12.5px;color:#444;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px 20px"></div>
     <div id="s3-planner-wrap">
       <div class="pl-tb">
         <button class="pb aa" id="s3-pb-cal">Set scale</button>
@@ -266,6 +267,38 @@ function renderStageGridSummary(){
 </script>
 
 <script>
+// ── Stage 3: PDF rasteriser — same approach as agent appraisal tool, fetches by URL ──
+var s3pdfjs=null;
+function s3LoadPdfJs(){
+  return new Promise(function(res){
+    if(window.pdfjsLib){s3pdfjs=window.pdfjsLib;return res();}
+    var s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload=function(){
+      pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      s3pdfjs=pdfjsLib;res();
+    };
+    s.onerror=function(){res();};
+    document.head.appendChild(s);
+  });
+}
+async function s3PdfFirstPageToImg(url){
+  await s3LoadPdfJs();
+  if(!s3pdfjs)throw new Error('PDF library failed to load');
+  var res=await fetch(url);
+  if(!res.ok)throw new Error('Could not fetch PDF file');
+  var ab=await res.arrayBuffer();
+  var pdf=await s3pdfjs.getDocument({data:ab}).promise;
+  var pg=await pdf.getPage(1);
+  var vp=pg.getViewport({scale:2.5});
+  var c=document.createElement('canvas');
+  c.width=vp.width;c.height=vp.height;
+  await pg.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;
+  var img=new Image();
+  img.src=c.toDataURL('image/jpeg',0.95);
+  return new Promise(function(res2){img.onload=function(){res2(img);};});
+}
+
 // ── Stage 3: Assess Floorplan — planner (opens on top of the shared table) ──
 var s3CurListing=null;
 function s3OpenListing(id){
@@ -274,14 +307,33 @@ function s3OpenListing(id){
   s3CurListing=l;
   document.getElementById('overlay-view-3').style.display='block';
   document.getElementById('s3-addr').textContent=l.addr||'—';
-  document.getElementById('s3-sub').textContent=(l.best_rent_price?'£'+Number(l.best_rent_price).toLocaleString()+' p.a.':'Rent not set')+(l.size?' · '+l.size+' sqft':'');
+  document.getElementById('s3-sub').textContent=(l.best_rent_price?'£'+Number(l.best_rent_price).toLocaleString()+' p.a.':(l.price?'£'+Number(l.price).toLocaleString()+' p.a. (listed)':'Rent not set'))+(l.size?' · '+l.size+' sqft':'')+(l.size&&(l.best_rent_price||l.price)?' · £'+Math.round((l.best_rent_price||l.price)/l.size)+' /sqft':'');
+  var info=[];
+  if(l.agent)info.push(['Agent',l.agent]);
+  if(l.postcode)info.push(['Postcode',l.postcode]);
+  info.push(['Ceiling ≥3m',l.ceiling_ok?'✓ Confirmed':'Not confirmed']);
+  if(l.time_on_market)info.push(['Time on market',l.time_on_market]);
+  info.push(['Ready to let',l.ready_to_let?'✓ Yes':'—']);
+  if(l.macro!=null)info.push(['Macro score',l.macro+' / 5']);
+  if(l.micro!=null)info.push(['Micro score',l.micro+' / 5']);
+  if(l.url)info.push(['Listing','<a href="'+l.url+'" target="_blank" style="color:#3B6D11;font-weight:600">View ↗</a>']);
+  if(l.notes)info.push(['Notes',l.notes.replace(/</g,'&lt;')]);
+  document.getElementById('s3-info').innerHTML=info.map(function(row){
+    return '<div><div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">'+row[0]+'</div><div style="font-weight:600">'+row[1]+'</div></div>';
+  }).join('');
   s3PlReset();
   if(l.floorplan_url){
-    var img=new Image();
-    img.crossOrigin='anonymous';
-    img.onload=function(){s3PlLoad(img);};
-    img.onerror=function(){document.getElementById('s3-pl-stl').textContent='Could not load the floorplan image.';};
-    img.src=l.floorplan_url;
+    if(/\.pdf(\?|$)/i.test(l.floorplan_url)){
+      document.getElementById('s3-pl-stl').textContent='Loading PDF…';
+      s3PdfFirstPageToImg(l.floorplan_url).then(function(img){s3PlLoad(img);})
+        .catch(function(err){document.getElementById('s3-pl-stl').textContent='Could not load the floorplan PDF: '+err.message;});
+    }else{
+      var img=new Image();
+      img.crossOrigin='anonymous';
+      img.onload=function(){s3PlLoad(img);};
+      img.onerror=function(){document.getElementById('s3-pl-stl').textContent='Could not load the floorplan image.';};
+      img.src=l.floorplan_url;
+    }
   }else{
     document.getElementById('s3-pl-stl').textContent='No floorplan uploaded for this listing.';
   }
