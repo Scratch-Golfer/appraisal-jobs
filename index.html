@@ -851,73 +851,180 @@ initTwilioDevice();
 var callStates={};
 var callTimers={};
 var activeCallListingId=null;
+var currentCallModalId=null;
 
 function formatCallDuration(s){
   var m=Math.floor(s/60),sec=s%60;
   return m+':'+(sec<10?'0':'')+sec;
 }
 
+function normalizePhoneNumber(raw){
+  var p=(raw||'').replace(/[^\d+]/g,'');
+  if(!p)return '';
+  if(p.charAt(0)==='0')p='+44'+p.slice(1);
+  else if(p.charAt(0)!=='+')p='+'+p;
+  return p;
+}
+
+function escapeHtmlLocal(s){
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ROW ICON — shows saved phone number + current call state, opens the popup
 function renderCallWidget(l){
   var state=callStates[l.id]||{mode:'idle'};
-  if(state.mode==='input'){
-    return '<input type="text" id="callinput-'+l.id+'" placeholder="Agent phone…" onclick="event.stopPropagation()" onkeydown="if(event.key===\'Enter\')saveAgentPhoneAndCall(\''+l.id+'\',this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;font-family:inherit;width:110px;margin-right:4px">'+
-      '<button class="act rst" onclick="cancelCallInput(\''+l.id+'\')" title="Cancel">✗</button>';
-  }
+  var phoneLabel=l.agent_phone?'<span style="font-size:10px;color:var(--text2);margin-right:3px">'+escapeHtmlLocal(l.agent_phone)+'</span>':'';
+  var icon;
   if(state.mode==='calling'){
-    return '<button class="act" disabled title="Calling…" style="color:var(--amber);margin-right:4px">📞…</button>';
+    icon='<button class="act" onclick="openCallModal(\''+l.id+'\')" title="Calling…" style="color:var(--amber);margin-right:4px">📞…</button>';
+  }else if(state.mode==='connected'){
+    icon='<button class="act" onclick="openCallModal(\''+l.id+'\')" title="On call" style="color:var(--green);margin-right:4px">📞 '+formatCallDuration(state.seconds||0)+'</button>';
+  }else{
+    icon='<button class="act" onclick="openCallModal(\''+l.id+'\')" title="Call agent" style="margin-right:4px">📞</button>';
   }
-  if(state.mode==='connected'){
-    return '<button class="act" onclick="hangupCall(\''+l.id+'\')" title="Hang up" style="color:var(--green);margin-right:4px">📞 '+formatCallDuration(state.seconds||0)+'</button>';
-  }
-  return '<button class="act" onclick="startCall(\''+l.id+'\')" title="Call agent" style="margin-right:4px">📞</button>';
+  return phoneLabel+icon;
 }
 
-function refreshCallWidget(id){
-  var el=document.getElementById('callwidget-'+id);
-  if(!el)return;
+function refreshCallUI(id){
+  var rowEl=document.getElementById('callwidget-'+id);
   var l=listings.find(function(x){return x.id===id;});
-  if(l)el.innerHTML=renderCallWidget(l);
+  if(rowEl&&l)rowEl.innerHTML=renderCallWidget(l);
+  if(currentCallModalId===id){
+    var cardEl=document.getElementById('call-modal-card');
+    if(cardEl&&l)cardEl.innerHTML=renderCallModalBody(l);
+  }
 }
 
-function startCall(id){
+// POPUP — opens on icon click. Auto-dials on first open if a number is already saved;
+// reopening later (e.g. after hangup) just shows status + a manual "Call again" option.
+function openCallModal(id){
   var l=listings.find(function(x){return x.id===id;});
   if(!l)return;
-  if(!l.agent_phone){
-    callStates[id]={mode:'input'};
-    refreshCallWidget(id);
-    setTimeout(function(){var el=document.getElementById('callinput-'+id);if(el)el.focus();},0);
-    return;
+  closeCallModal(true);
+  currentCallModalId=id;
+  var isFirstOpen=!callStates[id];
+  if(!callStates[id])callStates[id]={mode:'idle'};
+
+  var overlay=document.createElement('div');
+  overlay.id='call-modal-overlay';
+  overlay.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:2000;display:flex;align-items:center;justify-content:center';
+  overlay.onclick=function(e){if(e.target===overlay)closeCallModal();};
+  var card=document.createElement('div');
+  card.id='call-modal-card';
+  card.style.cssText='background:#fff;border-radius:10px;padding:20px;width:360px;max-width:90vw;box-shadow:0 8px 30px rgba(0,0,0,.25);font-family:inherit';
+  card.innerHTML=renderCallModalBody(l);
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+
+  if(isFirstOpen&&l.agent_phone){
+    placeCall(id,l.agent_phone);
   }
-  placeCall(id,l.agent_phone);
 }
 
-function cancelCallInput(id){
-  callStates[id]={mode:'idle'};
-  refreshCallWidget(id);
+function closeCallModal(silent){
+  var el=document.getElementById('call-modal-overlay');
+  if(el)el.remove();
+  if(!silent)currentCallModalId=null;
 }
 
-async function saveAgentPhoneAndCall(id,phone){
-  phone=(phone||'').trim();
-  if(!phone)return;
+function renderCallModalBody(l){
+  var state=callStates[l.id]||{mode:'idle'};
+  var phone=l.agent_phone||'';
+
+  var header='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">'+
+      '<div><div style="font-weight:600;font-size:14px">'+escapeHtmlLocal(l.addr||l.fullAddr||'Listing')+'</div>'+
+      '<div style="font-size:12px;color:var(--text2);margin-top:2px">'+escapeHtmlLocal(l.agent||'')+(phone?' · '+escapeHtmlLocal(phone):'')+'</div></div>'+
+      '<button onclick="closeCallModal()" style="border:none;background:none;cursor:pointer;font-size:15px;color:var(--text2);padding:0 0 0 8px" title="Close">✗</button>'+
+    '</div>';
+
+  var statusBlock;
+  if(state.mode==='calling'){
+    statusBlock='<div style="text-align:center;padding:14px 0;margin-bottom:14px;background:var(--bg);border-radius:8px">'+
+      '<div style="font-size:13px;color:var(--amber);font-weight:600;margin-bottom:10px">📞 Calling…</div>'+
+      '<button onclick="hangupCall(\''+l.id+'\')" style="padding:7px 18px;font-size:12px;font-weight:600;background:#fceaea;color:#8b2020;border:1px solid #f0c0c0;border-radius:6px;cursor:pointer">Cancel</button>'+
+      '</div>';
+  }else if(state.mode==='connected'){
+    statusBlock='<div style="text-align:center;padding:14px 0;margin-bottom:14px;background:var(--bg);border-radius:8px">'+
+      '<div style="font-size:20px;color:var(--green);font-weight:700;margin-bottom:10px">'+formatCallDuration(state.seconds||0)+'</div>'+
+      '<button onclick="hangupCall(\''+l.id+'\')" style="padding:7px 18px;font-size:12px;font-weight:600;background:#8b2020;color:#fff;border:none;border-radius:6px;cursor:pointer">Hang Up</button>'+
+      '</div>';
+  }else if(phone){
+    statusBlock='<div style="margin-bottom:14px">'+
+      '<button onclick="placeCall(\''+l.id+'\',\''+escapeHtmlLocal(phone).replace(/'/g,"\\'")+'\')" style="width:100%;padding:9px;font-size:13px;font-weight:600;background:#1C3A0E;color:#fff;border:none;border-radius:6px;cursor:pointer">📞 Call '+escapeHtmlLocal(phone)+'</button>'+
+      '</div>';
+  }else{
+    statusBlock='<div style="margin-bottom:14px">'+
+      '<input type="text" id="modal-callinput-'+l.id+'" placeholder="Agent phone number…" style="width:100%;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;margin-bottom:8px;box-sizing:border-box">'+
+      '<button onclick="modalSaveAgentPhoneAndCall(\''+l.id+'\')" style="width:100%;padding:8px;font-size:13px;font-weight:600;background:#1C3A0E;color:#fff;border:none;border-radius:6px;cursor:pointer">Save &amp; Call</button>'+
+      '</div>';
+  }
+
+  var last=latestAction(l);
+  var lastNoteBlock='<div style="margin-bottom:14px;padding:10px;background:var(--bg);border-radius:6px">'+
+    '<div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px">Last note</div>'+
+    (last?'<div style="font-size:12px;color:#333">'+escapeHtmlLocal(last.text)+'</div><div style="font-size:10px;color:var(--text2);margin-top:2px">'+new Date(last.date).toLocaleString()+'</div>':'<div style="font-size:12px;color:var(--text2)">No notes yet</div>')+
+    '</div>';
+
+  var parsed=parseTodayAction(l);
+  var logBlock='<div>'+
+    '<div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px">Log this call</div>'+
+    '<select onchange="modalHandleTodayAction(\''+l.id+'\',this.value)" style="width:100%;font-size:12px;padding:5px 6px;border:1px solid var(--border);border-radius:5px;font-family:inherit;margin-bottom:6px;box-sizing:border-box">'+
+      '<option value="">— select outcome —</option>'+
+      '<option value="no_answer"'+(parsed.code==='no_answer'?' selected':'')+'>Called - no answer</option>'+
+      '<option value="agent_emailing"'+(parsed.code==='agent_emailing'?' selected':'')+'>Called - Agent emailing</option>'+
+      '<option value="redirect"'+(parsed.code==='redirect'?' selected':'')+'>Called - took details to redirect</option>'+
+      '<option value="other"'+(parsed.code==='other'?' selected':'')+'>Other</option>'+
+    '</select>'+
+    (parsed.code==='other'?'<input type="text" id="modal-otherinput-'+l.id+'" value="'+(parsed.text||'').replace(/"/g,'&quot;')+'" placeholder="Reason…" onblur="modalSaveOtherReason(\''+l.id+'\',this.value)" onkeydown="if(event.key===\'Enter\')this.blur()" style="width:100%;font-size:12px;padding:5px 6px;border:1px solid var(--border);border-radius:5px;font-family:inherit;box-sizing:border-box">':'')+
+    '</div>';
+
+  return header+statusBlock+lastNoteBlock+logBlock;
+}
+
+async function modalSaveAgentPhoneAndCall(id){
+  var el=document.getElementById('modal-callinput-'+id);
+  if(!el)return;
+  var phone=normalizePhoneNumber(el.value);
+  if(!phone){toast('Enter a valid phone number');return;}
   var {error}=await db.from('listings').update({agent_phone:phone}).eq('id',id).select();
   if(error){toast('Failed to save number: '+error.message);return;}
   var l=listings.find(function(x){return x.id===id;});
   if(l)l.agent_phone=phone;
+  refreshCallUI(id);
   placeCall(id,phone);
+}
+
+function modalHandleTodayAction(id,code){
+  var l=listings.find(function(x){return x.id===id;});
+  if(!l||!code)return;
+  if(code==='other'){pendingOther[id]=true;refreshCallUI(id);return;}
+  pendingOther[id]=false;
+  logTodayAction(l,ACTION_LABELS[code]).then(function(){refreshCallUI(id);});
+}
+
+function modalSaveOtherReason(id,val){
+  var l=listings.find(function(x){return x.id===id;});
+  if(!l)return;
+  var trimmed=(val||'').trim();
+  if(!trimmed)return;
+  pendingOther[id]=false;
+  logTodayAction(l,'Other: '+trimmed).then(function(){refreshCallUI(id);});
 }
 
 function placeCall(id,phone){
   if(!twilioDevice){toast('Phone system not ready — refresh and try again');return;}
+  phone=normalizePhoneNumber(phone);
+  if(!phone){toast('Invalid phone number');return;}
   callStates[id]={mode:'calling'};
-  refreshCallWidget(id);
+  refreshCallUI(id);
   activeCallListingId=id;
   activeCall=twilioDevice.connect({params:{To:phone,listingId:id,staffIdentity:staffIdentity||''}});
   activeCall.on('accept',function(){
     callStates[id]={mode:'connected',seconds:0};
-    refreshCallWidget(id);
+    refreshCallUI(id);
     callTimers[id]=setInterval(function(){
       if(callStates[id])callStates[id].seconds=(callStates[id].seconds||0)+1;
-      refreshCallWidget(id);
+      refreshCallUI(id);
     },1000);
   });
   activeCall.on('disconnect',function(){endCallUI(id);});
@@ -938,7 +1045,7 @@ function endCallUI(id){
   var duration=(callStates[id]&&callStates[id].seconds)||0;
   if(callTimers[id]){clearInterval(callTimers[id]);delete callTimers[id];}
   callStates[id]={mode:'idle'};
-  refreshCallWidget(id);
+  refreshCallUI(id);
   if(activeCallListingId===id){activeCall=null;activeCallListingId=null;}
   if(wasConnected)toast('Call ended — '+formatCallDuration(duration));
 }
