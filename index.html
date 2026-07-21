@@ -238,11 +238,12 @@ input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--bl
 function switchStageView(view){
   document.querySelectorAll(".sitenav a").forEach(function(a){ a.classList.toggle("active", a.dataset.view === view); });
   document.getElementById("overlay-home").style.display = view === "home" ? "block" : "none";
-  document.getElementById("overlay-placeholder").style.display = (view !== "home" && view !== "1" && view !== "2" && view !== "3") ? "block" : "none";
+  document.getElementById("overlay-placeholder").style.display = (view !== "home" && view !== "1" && view !== "2" && view !== "3" && view !== "4") ? "block" : "none";
   if (view === "home") renderStageGridSummary();
   if (view === "1") switchTab("inbox");
   if (view === "2") switchTab("enquiry");
   if (view === "3") switchTab("floorplan_review");
+  if (view === "4") switchTab("scratch_check");
 }
 function renderStageGridSummary(){
   var meta = [
@@ -255,12 +256,13 @@ function renderStageGridSummary(){
   var stage1Count = listings.filter(function(l){ return l.status === "inbox"; }).length;
   var stage2Count = listings.filter(function(l){ return l.status === "enquiry"; }).length;
   var stage3Count = listings.filter(function(l){ return l.status === "floorplan_review"; }).length;
+  var stage4Count = listings.filter(function(l){ return l.status === "scratch_check"; }).length;
   var grid = document.getElementById("stagegrid");
   var rows = "";
   for (var i=0; i<meta.length; i++){
     var st = meta[i];
-    var c = st.n === 1 ? stage1Count : st.n === 2 ? stage2Count : st.n === 3 ? stage3Count : 0;
-    var built = st.n === 1 || st.n === 2 || st.n === 3;
+    var c = st.n === 1 ? stage1Count : st.n === 2 ? stage2Count : st.n === 3 ? stage3Count : st.n === 4 ? stage4Count : 0;
+    var built = st.n === 1 || st.n === 2 || st.n === 3 || st.n === 4;
     rows += '<div style="background:#fff;display:flex;align-items:center;gap:18px;padding:16px 20px;' + (built?"cursor:pointer":"opacity:.45") + '"' + (built?' onclick="switchStageView(\''+st.n+'\')"':'') + '>'
       + '<div style="font-weight:700;font-size:20px;color:#9b9a95;width:26px">' + String(st.n).padStart(2,"0") + '</div>'
       + '<div style="flex:1"><div style="font-weight:600;font-size:14px">' + st.title + '</div><div style="color:#6b6a65;font-size:12px;margin-top:2px">' + st.desc + '</div></div>'
@@ -721,6 +723,8 @@ async function loadListings(){
       ceiling_ok:!!r.ceiling_ok,
       floorplan_url:r.floorplan_url||'',
       best_rent_price:r.best_rent_price,
+      bay_layout:r.bay_layout||null,
+      expected_bays:r.expected_bays||null,
       time_on_market:r.time_on_market||'',
       ready_to_let:!!r.ready_to_let,
       macro_data:r.macro_score_data||null,
@@ -1264,6 +1268,10 @@ function render(){
           ?'<button class="act acc" onclick="s3OpenListing(\''+l.id+'\')" title="Open planner">Open</button>'+
             '<button class="act rst" onclick="action(\''+l.id+'\',\'enquiry\')">↩</button>'+
             '<button class="act rej" onclick="action(\''+l.id+'\',\'rejected\')" title="Reject">Reject</button>'
+          :curTab==='scratch_check'
+          ?'<button class="act acc" onclick="action(\''+l.id+'\',\'schedule_viewing\')" title="Pass → Schedule Viewing">Pass</button>'+
+            '<button class="act rst" onclick="action(\''+l.id+'\',\'floorplan_review\')">↩</button>'+
+            '<button class="act rej" onclick="action(\''+l.id+'\',\'rejected\')" title="Fail">Fail</button>'
           :'<button class="act rst" onclick="action(\''+l.id+'\',\'inbox\')">↩</button>')+
       '</td></tr>';
   }).join('');
@@ -1361,6 +1369,33 @@ function buildEnquiryDetailBlock(l){
     +'</div>';
   return html;
 }
+function buildScratchCheckDetailBlock(l){
+  var id=l.id;
+  var box='background:#f5f4f0;border-radius:6px;padding:12px;margin-bottom:16px';
+  var row='display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid #e8e7e2';
+  var lbl='font-size:12px;color:#444;font-weight:600';
+  var val='font-size:12px;color:#1a1a18;font-weight:700';
+  var layout=l.bay_layout||null;
+  var nb=l.expected_bays||(layout&&layout.bays?layout.bays.filter(function(b){return b.type!=='toilet';}).length:null);
+  var nt=layout&&layout.bays?layout.bays.filter(function(b){return b.type==='toilet';}).length:0;
+  var rent=l.best_rent_price||l.price;
+  var cpb=(nb&&rent)?'£'+Math.round(rent/nb).toLocaleString('en-GB')+' p.a.':'—';
+  var html='<div style="'+box+'">'
+    +'<div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#888;margin-bottom:8px">Everything so far</div>'
+    +'<div style="'+row+'"><span style="'+lbl+'">Floorplan</span><span style="'+val+'">'+(l.floorplan_url?'<a href="'+l.floorplan_url+'" target="_blank" style="color:#3B6D11">View ↗</a>':'—')+'</span></div>'
+    +'<div style="'+row+'"><span style="'+lbl+'">Bays / toilets</span><span style="'+val+'">'+(nb!=null?nb+' bay'+(nb===1?'':'s')+(nt?' · '+nt+' toilet'+(nt===1?'':'s'):''):'Not assessed')+'</span></div>'
+    +'<div style="'+row+'"><span style="'+lbl+'">Cost per bay</span><span style="'+val+'">'+cpb+'</span></div>'
+    +'<div style="'+row+'"><span style="'+lbl+'">Ceiling ≥3m</span><span style="'+val+'">'+(l.ceiling_ok?'✓ Confirmed':'Not confirmed')+'</span></div>'
+    +'<div style="'+row+'"><span style="'+lbl+'">Best rent price</span><span style="'+val+'">'+(l.best_rent_price?'£'+Number(l.best_rent_price).toLocaleString():'—')+'</span></div>'
+    +'<div style="'+row+'"><span style="'+lbl+'">Time on market</span><span style="'+val+'">'+(l.time_on_market||'—')+'</span></div>'
+    +'<div style="'+row+';border-bottom:none"><span style="'+lbl+'">Ready to let</span><span style="'+val+'">'+(l.ready_to_let?'✓ Yes':'—')+'</span></div>'
+    +'<div style="margin-top:10px">'
+    +'<label style="font-size:11px;color:#666;display:block;margin-bottom:4px">Notes / comments</label>'
+    +'<textarea placeholder="Review notes…" style="width:100%;min-height:50px;font-size:12px;font-family:inherit;border:1px solid #ddd;border-radius:5px;padding:6px" onblur="saveListingField(\''+id+'\',\'notes\',this.value)">'+(l.notes||'').replace(/</g,'&lt;')+'</textarea>'
+    +'</div>'
+    +'</div>';
+  return html;
+}
 function showDetail(id){
   closeDetail();
   var l=listings.find(function(x){return x.id===id;});
@@ -1412,6 +1447,7 @@ function showDetail(id){
     +(l.agent?'<div style="font-size:12px;color:#666;margin-bottom:8px">Agent: <strong>'+l.agent+'</strong></div>':'')
     +(l.url?'<a href="'+l.url+'" target="_blank" style="display:inline-block;margin-bottom:16px;font-size:12px;color:#3B6D11;font-weight:600">View on Rightmove ↗</a><br>':'')
     +(l.status==='enquiry'?buildEnquiryDetailBlock(l):'')
+    +(l.status==='scratch_check'?buildScratchCheckDetailBlock(l):'')
     +'<div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#888;margin-bottom:8px;margin-top:8px">Macro score</div>';
   if(l.macro!=null){
     inner+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
@@ -1473,7 +1509,8 @@ function showDetail(id){
   inner+='<div style="display:flex;gap:8px;margin-top:8px">';
   if(l.status==='inbox')inner+='<button id="dp-enq" style="'+btnStyle+'background:#1C3A0E;color:white">\u2713 Pass \u2192 Stage 2</button>';
   if(l.status==='enquiry')inner+='<button id="dp-acc" style="'+btnStyle+'background:#1C3A0E;color:white">\u2713 Pass \u2192 Stage 3</button>';
-  inner+='<button id="dp-rej" style="'+btnStyle+'background:#fceaea;color:#8b2020;border:1px solid #f0c0c0">✗ Reject</button>';
+  if(l.status==='scratch_check')inner+='<button id="dp-scratch-pass" style="'+btnStyle+'background:#1C3A0E;color:white">\u2713 Pass \u2192 Schedule Viewing</button>';
+  inner+='<button id="dp-rej" style="'+btnStyle+'background:#fceaea;color:#8b2020;border:1px solid #f0c0c0">'+(l.status==='scratch_check'?'✗ Fail':'✗ Reject')+'</button>';
   inner+='</div>';
   inner+='<div id="dp-minimap" style="height:180px;border-radius:6px;overflow:hidden;margin-top:12px;background:#eee"></div>';
   inner+='</div></div>';
@@ -1485,6 +1522,7 @@ function showDetail(id){
     action(l.id,'enquiry');closeDetail();
   };
   if(document.getElementById('dp-acc'))document.getElementById('dp-acc').onclick=function(){action(l.id,'floorplan_review');closeDetail();};
+  if(document.getElementById('dp-scratch-pass'))document.getElementById('dp-scratch-pass').onclick=function(){action(l.id,'schedule_viewing');closeDetail();};
   document.getElementById('dp-rej').onclick=function(){action(l.id,'rejected');closeDetail();};
   document.getElementById('dp-addaction').onclick=async function(){
     var inp=document.getElementById('dp-newaction');
@@ -1557,7 +1595,7 @@ async function action(id,ns){
       await db.from('listings').update({status:ns}).eq('id',l._dbId);
     }
     l.status=ns;l.selected=false;
-    toast(ns==='rejected'?'Rejected':ns==='inbox'?'Restored to inbox':ns==='floorplan_review'?'→ Sent to Assess Floorplan':'Moved');
+    toast(ns==='rejected'?'Rejected':ns==='inbox'?'Restored to inbox':ns==='floorplan_review'?'→ Sent to Assess Floorplan':ns==='scratch_check'?'→ Sent to Scratch Check':ns==='schedule_viewing'?'✓ Passed → Schedule Viewing':'Moved');
   }
   render();updateCounts();updateMap();
 }
