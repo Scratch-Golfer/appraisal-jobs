@@ -519,17 +519,8 @@ async function initS4MiniMap(l){
   _s4MiniMap=L.map('s4-minimap',{zoomControl:false,attributionControl:false}).setView([lat,lng],15);
   L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:19}).addTo(_s4MiniMap);
   L.marker([lat,lng]).addTo(_s4MiniMap);
-  var msoaCode=null;
-  try{msoaCode=l.msoa_code||(JSON.parse(l.macro_data||'{}').msoa_code)||null;}catch(e){}
-  if(msoaCode){
-    try{
-      var url='https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/Middle_layer_Super_Output_Areas_December_2021_Boundaries_EW_BGC_V3/FeatureServer/0/query?where=MSOA21CD%3D%27'+msoaCode+'%27&outFields=MSOA21CD,MSOA21NM&f=geojson';
-      var r=await fetch(url);var gj=await r.json();
-      if(gj.features&&gj.features.length&&_s4MiniMap){
-        L.geoJSON(gj,{style:{color:'#3B6D11',weight:2,fillColor:'#3B6D11',fillOpacity:.1,dashArray:'4 4'}}).addTo(_s4MiniMap);
-      }
-    }catch(e){}
-  }
+  var msoaBlend=msoaBlendOf(l);
+  if(msoaBlend&&_s4MiniMap)await drawMsoaBlendOn(_s4MiniMap,msoaBlend);
   setTimeout(function(){if(_s4MiniMap)_s4MiniMap.invalidateSize();},100);
 }
 function s4CloseListing(){
@@ -2081,22 +2072,56 @@ function render(){
 
 
 var _msoaLayer=null;
-async function showMSOABoundary(msoaCode){
-  // Remove existing boundary
+// msoaCode = the home MSOA (always drawn, backward-compatible with pre-blend scores).
+// blend = optional [{msoa_code,weight,distance_km}] from score-macro's 1km blend.
+async function showMSOABoundary(msoaCode, blend){
   if(_msoaLayer){mapObj.removeLayer(_msoaLayer);_msoaLayer=null;}
   if(!msoaCode||!mapObj)return;
+  var b=(blend&&blend.length)?blend:[{msoa_code:msoaCode,weight:1,distance_km:0}];
+  _msoaLayer=await drawMsoaBlendOn(mapObj,b);
+  if(_msoaLayer)mapObj.flyToBounds(_msoaLayer.getBounds(),{padding:[20,20],maxZoom:14,duration:0.8});
+}
+// Shared across the main map (mapObj), the Assess Floorplan minimap (_s4MiniMap), and the
+// detail sidebar minimap (_dpMiniMap) — same pattern also lives in quick-search.html and
+// triage.html. Draws every MSOA in the blend shaded by weight (home MSOA solid, neighbours
+// fading out with a dashed outline + a tooltip showing each one's weight).
+async function drawMsoaBlendOn(mapInstance, blend){
+  if(!blend||!blend.length||!mapInstance)return null;
+  var maxW=Math.max.apply(null,blend.map(function(m){return m.weight;}));
+  var weightMap={};blend.forEach(function(m){weightMap[m.msoa_code]=m.weight;});
+  var codesList=blend.map(function(m){return "'"+m.msoa_code+"'";}).join(',');
+  var where=encodeURIComponent('MSOA21CD IN ('+codesList+')');
+  var url='https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/Middle_layer_Super_Output_Areas_December_2021_Boundaries_EW_BGC_V3/FeatureServer/0/query?where='+where+'&outFields=MSOA21CD,MSOA21NM&f=geojson';
   try{
-    var url='https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/Middle_layer_Super_Output_Areas_December_2021_Boundaries_EW_BGC_V3/FeatureServer/0/query?where=MSOA21CD%3D%27'+msoaCode+'%27&outFields=MSOA21CD,MSOA21NM&f=geojson';
     var r=await fetch(url);
     var gj=await r.json();
-    if(gj.features&&gj.features.length){
-      _msoaLayer=L.geoJSON(gj,{
-        style:{color:'#3B6D11',weight:2.5,fillColor:'#3B6D11',fillOpacity:0.12,dashArray:'4 4'}
-      }).addTo(mapObj);
-      // Fly to boundary
-      mapObj.flyToBounds(_msoaLayer.getBounds(),{padding:[20,20],maxZoom:14,duration:0.8});
-    }
-  }catch(e){console.warn('MSOA boundary failed:',e);}
+    if(!gj.features||!gj.features.length)return null;
+    return L.geoJSON(gj,{
+      style:function(feature){
+        var code=feature.properties.MSOA21CD;
+        var w=weightMap[code]!=null?weightMap[code]:0;
+        var isHome=w===maxW;
+        return {color:'#3B6D11',weight:isHome?2.5:1.5,fillColor:'#3B6D11',fillOpacity:Math.max(0.05,0.24*w),opacity:isHome?1:Math.max(0.3,w),dashArray:isHome?null:'4 4'};
+      },
+      onEachFeature:function(feature,layer){
+        var code=feature.properties.MSOA21CD;
+        var w=weightMap[code];
+        if(w!=null)layer.bindTooltip(code+' \u2014 '+(w*100).toFixed(0)+'% weight',{sticky:true});
+      }
+    }).addTo(mapInstance);
+  }catch(e){console.warn('MSOA boundary failed:',e);return null;}
+}
+// Extracts {msoa_code,weight,distance_km}[] for a listing, falling back to a single
+// home-MSOA entry for scores from before blending existed.
+function msoaBlendOf(l){
+  var blend=null,code=null;
+  try{
+    var md=JSON.parse(l.macro_data||'{}');
+    code=l.msoa_code||md.msoa_code||null;
+    blend=md._blend||null;
+  }catch(e){}
+  if(!code)return null;
+  return (blend&&blend.length)?blend:[{msoa_code:code,weight:1,distance_km:0}];
 }
 
 var _dpMiniMap=null;
@@ -2122,17 +2147,8 @@ async function initDetailMiniMap(l){
   _dpMiniMap=L.map('dp-minimap',{zoomControl:false,attributionControl:false}).setView([lat,lng],15);
   L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:19}).addTo(_dpMiniMap);
   L.marker([lat,lng]).addTo(_dpMiniMap);
-  var msoaCode=null;
-  try{msoaCode=l.msoa_code||(JSON.parse(l.macro_data||'{}').msoa_code)||null;}catch(e){}
-  if(msoaCode){
-    try{
-      var url='https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/Middle_layer_Super_Output_Areas_December_2021_Boundaries_EW_BGC_V3/FeatureServer/0/query?where=MSOA21CD%3D%27'+msoaCode+'%27&outFields=MSOA21CD,MSOA21NM&f=geojson';
-      var r=await fetch(url);var gj=await r.json();
-      if(gj.features&&gj.features.length&&_dpMiniMap){
-        L.geoJSON(gj,{style:{color:'#3B6D11',weight:2,fillColor:'#3B6D11',fillOpacity:.1,dashArray:'4 4'}}).addTo(_dpMiniMap);
-      }
-    }catch(e){}
-  }
+  var blend=msoaBlendOf(l);
+  if(blend&&_dpMiniMap)await drawMsoaBlendOn(_dpMiniMap,blend);
   setTimeout(function(){if(_dpMiniMap)_dpMiniMap.invalidateSize();},100);
 }
 function buildEnquiryDetailBlock(l){
@@ -2367,7 +2383,7 @@ function showDetail(id){
   var msoaCode=null;
   try{msoaCode=l.msoa_code||(JSON.parse(l.macro_data||'{}').msoa_code)||null;}catch(e){}
   if(msoaCode&&mapObj&&viewMode==='map'){
-    showMSOABoundary(msoaCode);
+    showMSOABoundary(msoaCode,msoaBlendOf(l));
     if(l.lat&&l.lng)mapObj.flyTo([l.lat,l.lng],15,{duration:0.8});
   }
   // Load the inline mini-map at the bottom of the sidebar automatically — no click needed
